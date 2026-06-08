@@ -16,7 +16,12 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path
+from .views import PremiumAICoachView
+
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+    path('analytics/ai-coach/', PremiumAICoachView.as_api_view(), name='ai-coach'),
 ]
+
+
