@@ -14,8 +14,10 @@ class UserProfile(models.Model):
     
 class SystemComplaint(models.Model):
     """The data store for the user feedback widget."""
-    user = models.ForeignKey()
-
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='complaints')
+    subject = models.CharField(max_length=255)
+    message = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
 
 class RegionalDefault(models.Model):
     """ Stores regional fall back estimate if a user doesnot know their exact metrics."""
