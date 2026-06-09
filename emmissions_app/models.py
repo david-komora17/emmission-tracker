@@ -3,6 +3,20 @@ from django.contrib.auth.models import User
 
 # Create your models here.
 
+class UserProfile(models.Model):
+    """Extends standard user to manage subscription tier levels."""
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
+    is_premium = models.BooleanField(default=False)
+    phone_number = models.CharField(max_length=15, blank=True, null=True)
+
+    def __str__(self):
+        return f"{self.user.username} - Premium: {self.is_premium}."
+    
+class SystemComplaint(models.Model):
+    """The data store for the user feedback widget."""
+    user = models.ForeignKey()
+
+
 class RegionalDefault(models.Model):
     """ Stores regional fall back estimate if a user doesnot know their exact metrics."""
     country = models.CharField(max_length=100, default="Kenya")
