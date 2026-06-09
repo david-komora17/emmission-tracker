@@ -1,4 +1,6 @@
 # your_app/views.py
+import os
+from groq import Groq
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
@@ -6,7 +8,7 @@ from rest_framework import status
 
 from .models import Activity, SystemComplaint
 from .serializers import SystemComplaintSerializers
-from .permissions import isAdminUserRole  # The permission class you wrote in Week 1
+from .permissions import isAdminUserRole, IsHighestPaidTier  # The permission class you wrote in Week 1
 from .services.ai_coach import generate_eco_recommendations
 
 
@@ -74,3 +76,55 @@ class ComplaintFunnelView (APIView):
                 status=status.HTTP_201_CREATED
             )
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+class PremiumEcoSwapperView(APIView):
+    """
+    Exclusive Premium tier feature.
+    Takes a high emmission item and uses llama 3.1 to genrate clean replacements,
+    Detailing the exact mathemeatical emmission drop and the environmental reasoning. 
+    """
+    permission_classes = [IsHighestPaidTier]
+
+    def post(self, request):
+        high_emmission_product = request.data.get('product_name') #Single use incandecent bulbs.
+        current_co2e = request.data.get('co2e_value')
+
+        if not high_emission_product:
+            return Response({"error": "Product name is required."}, status=status.HTTP_400_BAD_REQUEST)
+        
+        api_key = os.environ.get("GROQ_API_KEY")
+        if not api_key:
+            return Response({"error": "AI service offline."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        
+        client = Groq(api_key=api_key)
+
+        # Prompt engineering to enforce product suggestions, metrics, and reasoning
+        system_instruction = (
+            "You are an advanced Eco-Product Replacement Engine for EcoTrack. "
+            "Suggest exactly 1 lower-emission alternative for the product provided. "
+            "State clearly: 1) What the replacement is. 2) By what specific measure/percentage "
+            "it reduces emissions compared to the original. 3) The precise science of why. "
+            "Be specific, clean, and concise. Do not use conversational intro filler."
+        )
+
+        user_input = f"Suggest a replacement for: '{high_emission_product}' which currently emits {current_co2e} kg CO2e."
+
+        try:
+            completion = client.chat.completions.create(
+                model="llama-3.1-8b-instant",
+                messages=[
+                    {"role": "system", "content": system_instruction},
+                    {"role": "user", "content": user_input}
+                ],
+                temperature=0.2,
+                max_tokens=200
+            )
+            
+            ai_analysis = completion.choices[0].message.content
+            return Response({
+                "original_item": high_emission_product,
+                "replacement_analysis": ai_analysis
+            }, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            return Response({"error": "Failed to generate AI analytics."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
