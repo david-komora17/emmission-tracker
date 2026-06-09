@@ -18,6 +18,13 @@ class SystemComplaint(models.Model):
     subject = models.CharField(max_length=255)
     message = models.TextField()
     created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"Complaint by {self.user.username} - {self.subject}"
+
 
 class RegionalDefault(models.Model):
     """ Stores regional fall back estimate if a user doesnot know their exact metrics."""
