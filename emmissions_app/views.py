@@ -4,12 +4,14 @@ from groq import Groq
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
+from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework import status
 
-from .models import Activity, SystemComplaint
-from .serializers import SystemComplaintSerializers
-from .permissions import isAdminUserRole, IsHighestPaidTier  # The permission class you wrote in Week 1
+from .serializers import SystemComplaintSerializer
+from .permissions import IsOwner, IsHighestPaidTier  # The permission class you wrote in Week 1
 from .services.ai_coach import generate_eco_recommendations
+from .models import UserProfile
+from django.contrib.auth.models import User
 
 
 class PremiumAICoachView(APIView):
@@ -18,7 +20,7 @@ class PremiumAICoachView(APIView):
     and pipes them into Llama 3.1 via Groq for instantaneous suggestions.
     """
     # Enforces that users must be logged in AND have an active premium tier
-    permission_classes = [IsAuthenticated, HasPremiumPlan]
+    permission_classes = [IsAuthenticated, IsHighestPaidTier]
 
     def get(self, request, *args, **kwargs):
         user = request.user
@@ -58,7 +60,7 @@ class ComplaintFunnelView (APIView):
     """
     def get_permissions(self):
         if self.request.method == 'GET':
-            return [isAdminUserRole()]
+            return [IsOwner()]
         return [IsAuthenticated()]
 
     def get(self, request):
@@ -70,7 +72,7 @@ class ComplaintFunnelView (APIView):
         serializer = SystemComplaintSerializer(data=request.data)
         if serializer.is_valid():
             # Automatically bind the logged in user to their complaint row.
-            serializer.save(user, request.user)
+            serializer.save(user=request.user)
             return Response(
                 {"message": "Complaint is received and processed. Expect feedback shortly!"},
                 status=status.HTTP_201_CREATED
@@ -128,3 +130,48 @@ class PremiumEcoSwapperView(APIView):
 
         except Exception as e:
             return Response({"error": "Failed to generate AI analytics."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class CustomRegisterView(APIView):
+    """
+    Custom RBAC Registration Engine.
+    Bypasses Django createsuperuser by allowing roles to be explicitly defined
+    during account payload submission from the React frontend.
+    """
+    def post(self, request):
+        username = request.data.get('username')
+        email = request.data.get('email')
+        password = request.data.get('password')
+        requested_role = request.data.get('role', 'USER')  # Expects 'USER' or 'ADMIN'
+        phone_number = request.data.get('phone_number', '')
+
+        if not username or not password:
+            return Response({"error": "Username and password are required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if User.objects.filter(username=username).exists():
+            return Response({"error": "Username already taken."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 1. Create the base core User instance
+        user = User.objects.create_user(username=username, email=email, password=password)
+        
+        # 2. Assign True Structural Admin RBAC rights if requested
+        if requested_role.upper() == 'ADMIN':
+            user.is_staff = True
+            user.save()
+
+        # 3. Initialize the Extended App Profile Layer
+        profile = UserProfile.objects.create(
+            user=user,
+            is_premium=False, # Starts basic, upgraded via simulated M-Pesa push view
+            phone_number=phone_number
+        )
+
+        # 4. Generate JWT tokens immediately for instant React login onboarding
+        refresh = RefreshToken.for_user(user)
+        
+        return Response({
+            "message": f"Account created successfully as an {requested_role.upper()}.",
+            "access_token": str(refresh.access_token),
+            "refresh_token": str(refresh),
+            "role": "ADMIN" if user.is_staff else "USER",
+            "is_premium": profile.is_premium
+        }, status=status.HTTP_201_CREATED)

@@ -35,10 +35,10 @@ class RegionalDefault(models.Model):
     unit = models.CharField(max_length=20, default="kWh")
 
     class Meta:
-        unique_together = ('country', 'county', 'category')
+        unique_together = ('country', 'county_or_state', 'category')
 
-        def __str__(self):
-            return f"{self.country} - {self.category} : {self.default_value} {self.unit}"
+    def __str__(self):
+        return f"{self.country} - {self.category} : {self.default_value} {self.unit}"
         
 class Activity(models.Model):
     """Main model tracking user daily carbon footprints."""

@@ -1,7 +1,7 @@
 # emmissions_project/urls.py
 from django.contrib import admin
 from django.urls import path
-from .views import ComplaintFunnelView, PremiumEcoSwapperView
+from emmissions_app.views import ComplaintFunnelView, PremiumEcoSwapperView
 
 urlpatterns = [
     path('admin/', admin.site.urls),

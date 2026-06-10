@@ -2,7 +2,7 @@ import os
 import logging
 from groq import Groq
 
-logger = logging.getlogger(__name__)
+logger = logging.getLogger(__name__)
 
 
 def generate_eco_recommendations(category, amount, co2e_value):
