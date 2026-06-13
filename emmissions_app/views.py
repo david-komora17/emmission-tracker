@@ -5,13 +5,19 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework_simplejwt.tokens import RefreshToken
-from rest_framework import status
+from rest_framework import status, permissions
 
 from .serializers import SystemComplaintSerializer
 from .permissions import IsOwner, IsHighestPaidTier  # The permission class you wrote in Week 1
 from .services.ai_coach import generate_eco_recommendations
 from .models import UserProfile
 from django.contrib.auth.models import User
+from django.contrib.auth.models import User
+
+# Hardcoded Security Gateways
+ADMIN_SIGNUP_SECRET = "ClimatiqaSecureAdmin2026!Create"
+ADMIN_LOGIN_SECRET = "ClimatiqaAdminSessionGateVerify2026"
+
 
 
 class PremiumAICoachView(APIView):
@@ -130,48 +136,58 @@ class PremiumEcoSwapperView(APIView):
 
         except Exception as e:
             return Response({"error": "Failed to generate AI analytics."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
+ 
 class CustomRegisterView(APIView):
     """
-    Custom RBAC Registration Engine.
-    Bypasses Django createsuperuser by allowing roles to be explicitly defined
-    during account payload submission from the React frontend.
+    Implicit RBAC Registration Engine.
+    Removes the explicit 'role' parameter. Accounts default to 'USER' status.
+    If the correct signup_secret is present in the payload, they are automatically
+    provisioned as a system Administrator.
     """
     def post(self, request):
         username = request.data.get('username')
-        email = request.data.get('email')
         password = request.data.get('password')
-        requested_role = request.data.get('role', 'USER')  # Expects 'USER' or 'ADMIN'
-        phone_number = request.data.get('phone_number', '')
+        email = request.data.get('email')
+        signup_secret = request.data.get('signup_secret', '')# Optional for users required for admins.
 
         if not username or not password:
-            return Response({"error": "Username and password are required."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"error": "Credentials required."}, status=status.HTTP_400_BAD_REQUEST)
 
         if User.objects.filter(username=username).exists():
-            return Response({"error": "Username already taken."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"error": "User already exists."}, status=status.HTTP_400_BAD_REQUEST)
 
-        # 1. Create the base core User instance
+        # 1. Initialize the base user instance
         user = User.objects.create_user(username=username, email=email, password=password)
+
+        # 2. Dynamic roledetection based on the secret_key payload
+        if signup_secret:
+            if signup_secret == ADMIN_SIGNUP_SECRET:
+                user.is_staff = True
+                user.save()
+            else:
+            # If they tried to pass a secret but it's wrong, halt execution to prevent accidental signups
+                user.delete()
+                return Response({"error": "Invalid Sign-Up Secret. Account creation aborted."}, status=status.HTTP_401_UNAUTHORIZED)
         
-        # 2. Assign True Structural Admin RBAC rights if requested
-        if requested_role.upper() == 'ADMIN':
-            user.is_staff = True
-            user.save()
-
-        # 3. Initialize the Extended App Profile Layer
-        profile = UserProfile.objects.create(
-            user=user,
-            is_premium=False, # Starts basic, upgraded via simulated M-Pesa push view
-            phone_number=phone_number
-        )
-
-        # 4. Generate JWT tokens immediately for instant React login onboarding
+        # 3. Create the profile attachment layer
+        profile, created = UserProfile.objects.get_or_create(user=user)
         refresh = RefreshToken.for_user(user)
-        
+
         return Response({
-            "message": f"Account created successfully as an {requested_role.upper()}.",
+            "message": "Account created successfully.",
             "access_token": str(refresh.access_token),
             "refresh_token": str(refresh),
-            "role": "ADMIN" if user.is_staff else "USER",
-            "is_premium": profile.is_premium
+            "role": "ADMIN" if user.is_staff else "USER"
         }, status=status.HTTP_201_CREATED)
+
+class SecretAdminHeaderPermission(permissions.BasePermission):
+    """
+    Checks for the explicit hardcoded system Admin Login Secret via request headers.
+    """
+    def has_permission(self, request, view):
+        if not request.user or not request.user.is_authenticated or not request.user.is_staff:
+            return False
+        
+        # Look for custom verification header token
+        client_secret = request.headers.get('X-Admin-Login-Secret')
+        return client_secret == ADMIN_LOGIN_SECRET

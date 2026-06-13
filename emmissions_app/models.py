@@ -31,8 +31,9 @@ class RegionalDefault(models.Model):
     country = models.CharField(max_length=100, default="Kenya")
     county_or_state = models.CharField(max_length=100, blank=True, null=True)
     category = models.CharField(max_length=50)
-    default_value = models.FloatField()
     unit = models.CharField(max_length=20, default="kWh")
+    region = models.CharField(max_length=100)   # e.g., 'Nairobi', 'Mombasa'
+    default_value = models.FloatField()          # Baseline usage value
 
     class Meta:
         unique_together = ('country', 'county_or_state', 'category')
@@ -40,27 +41,28 @@ class RegionalDefault(models.Model):
     def __str__(self):
         return f"{self.country} - {self.category} : {self.default_value} {self.unit}"
         
-class Activity(models.Model):
-    """Main model tracking user daily carbon footprints."""
+class ActivityLog(models.Model):
     CATEGORY_CHOICES = [
-        ('transportation', 'Transportation(vehicles/flight)'),
-        ('home_energy', 'Home Energy (Electricity/Gas)'),
-        ('diet', 'Dietary Consumption'),
+        ('transportation', 'Transportation'),
+        ('home_energy', 'Home Energy'),
+        ('diet', 'Diet'),
     ]
-
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='activities')
-    category = models.CharField(max_length=30, choices=CATEGORY_CHOICES)
-    sub_category = models.CharField(max_length=50) # e.g., 'flight', 'car_mileage', 'electricity'
-    amount = models.FloatField() # Raw numerical input (miles, kWh, kg of meat)
-    unit = models.CharField(max_length=20) # 'mi', 'kwh', 'kg'
-
-    # Value calculated and returned from the Carbon Interface API
-    co2e_metric = models.FloatField(blank=True, null=True)
-
+    category = models.CharField(max_length=50, choices=CATEGORY_CHOICES)
+    activity_type = models.CharField(max_length=100) # e.g., 'flight', 'vehicle', 'electricity'
+    input_value = models.FloatField()                # User metric or injected smart default
+    unit = models.CharField(max_length=20)
+    co2e_kg = models.FloatField()                    # Computed dynamic output returned by Carbon Interface
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ['-created_at']
 
     def  __str__(self): 
-        return f"{self.user.username} - {self.category} - ({self.co2e_metric} kg CO2e)"            
+        return f"{self.user.username} - {self.category} - ({self.co2e_metric} kg CO2e)"   
+
+class ReductionTarget(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='targets')
+    category = models.CharField(max_length=50)
+    target_value_kg = models.FloatField()            # The ceiling target
+    month_year = models.CharField(max_length=7)      # Format: 'YYYY-MM'
