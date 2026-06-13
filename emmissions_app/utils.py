@@ -28,3 +28,29 @@ def get_mpesa_callback_url(request=None):
 
     # Last resort fallback localhost
     return "http://127.0.0.1:8000/api/payments/mpesa-callback/"
+
+def generate_mpesa_credentials():
+    """
+    Generates OAuth tokens and security timestamps required by Daraja.
+    """
+    consumer_key = os.environ.get('MPESA_CONSUMER_KEY')
+    consumer_secret = os.environ.get('MPESA_CONSUMER_SECRET')
+    environment = os.environ.get('MPESA_ENVIRONMENT', 'sandbox')
+    
+    # Fetch Access Token
+    url = "https://sandbox.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials"
+    if environment == 'production':
+        url = "https://api.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials"
+        
+    response = requests.get(url, auth=(consumer_key, consumer_secret))
+    access_token = response.json().get('access_token')
+    
+    # Generate Password Encryption Key
+    shortcode = os.environ.get('MPESA_EXPRESS_SHORTCODE', '174379')
+    passkey = os.environ.get('MPESA_PASSKEY', '')
+    timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
+    
+    password_string = f"{shortcode}{passkey}{timestamp}"
+    encrypted_password = base64.b64encode(password_string.encode()).decode('utf-8')
+    
+    return access_token, encrypted_password, timestamp
