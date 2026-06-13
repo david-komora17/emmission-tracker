@@ -1,5 +1,6 @@
 # your_app/views.py
 import os
+import requests
 from groq import Groq
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -8,10 +9,10 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework import status, permissions
 
 from .serializers import SystemComplaintSerializer
+from .utils import generate_mpesa_credentials, get_mpesa_callback_url
 from .permissions import IsOwner, IsHighestPaidTier  # The permission class you wrote in Week 1
 from .services.ai_coach import generate_eco_recommendations
 from .models import UserProfile
-from django.contrib.auth.models import User
 from django.contrib.auth.models import User
 
 # Hardcoded Security Gateways
@@ -191,3 +192,57 @@ class SecretAdminHeaderPermission(permissions.BasePermission):
         # Look for custom verification header token
         client_secret = request.headers.get('X-Admin-Login-Secret')
         return client_secret == ADMIN_LOGIN_SECRET
+
+class MpesaCheckoutView(APIView):
+    """
+    Initiates an M-Pesa Express STK Push payment sequence.
+    Works seamlessly across Vercel cloud deployments and local tunnels.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        phone_number = request.data.get('phone_number') # Format: 2547XXXXXXXX
+        amount = request.data.get('amount', 30) # Default subscription cost
+
+        if not phone_number:
+            return Response({"error": "Phone number is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            token, password, timestamp = generate_mpesa_credentials()
+            callback_url = get_mpesa_callback_url(request)
+            
+            headers = {"Authorization": f"Bearer {token}"}
+            payload = {
+                "BusinessShortCode": os.environ.get('MPESA_EXPRESS_SHORTCODE', '174379'),
+                "Password": password,
+                "Timestamp": timestamp,
+                "TransactionType": "CustomerPayBillOnline",
+                "Amount": int(amount),
+                "PartyA": phone_number,
+                "PartyB": os.environ.get('MPESA_EXPRESS_SHORTCODE', '174379'),
+                "PhoneNumber": phone_number,
+                "CallBackURL": callback_url,
+                "AccountReference": f"Climatiqa-{request.user.username}",
+                "TransactionDesc": "Premium Upgrade Subscription"
+            }
+            
+            # Target Safaricom Sandbox
+            url = "https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest"
+            if os.environ.get('MPESA_ENVIRONMENT') == 'production':
+                url = "https://api.safaricom.co.ke/mpesa/stkpush/v1/processrequest"
+
+            response = requests.post(url, json=payload, headers=headers)
+            response_data = response.json()
+
+            if response_data.get("ResponseCode") == "0":
+                return Response({
+                    "message": "STK Push initiated successfully. Check your handset for the PIN prompt.",
+                    "MerchantRequestID": response_data.get("MerchantRequestID"),
+                    "CheckoutRequestID": response_data.get("CheckoutRequestID")
+                }, status=status.HTTP_200_OK)
+            else:
+                return Response({"error": response_data.get("ResponseDescription", "Gateway error")}, status=status.HTTP_400_BAD_REQUEST)
+
+        except Exception as e:
+            return Response({"error": f"Failed to connect to gateway: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
