@@ -86,17 +86,39 @@ class ComplaintFunnelView (APIView):
             )
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
+# Create a throttling policy inside your app or place this logic cleanly 
+# Let's adjust PremiumEcoSwapperView inside your views.py to implement it:
+
 class PremiumEcoSwapperView(APIView):
     """
-    Exclusive Premium tier feature.
-    Takes a high emmission item and uses llama 3.1 to genrate clean replacements,
-    Detailing the exact mathemeatical emmission drop and the environmental reasoning. 
+    Tracks 5 consistent queries for free tier users, rendering HTTP 429 
+    when exhausted to prompt React upgrade card layout rendering.
+    Unlocks infinite queries for Premium users.
     """
-    permission_classes = [IsHighestPaidTier]
+    permission_classes = [IsAuthenticated] # Loosen permission so free users can use their quota
 
     def post(self, request):
-        high_emmission_product = request.data.get('product_name') #Single use incandecent bulbs.
-        current_co2e = request.data.get('co2e_value')
+        user = request.user
+        
+        # 1. Enforce the 5-query quota ceiling for free tier users
+        if not getattr(user, 'is_premium', False):
+            # Fallback to check if user profile fields exist
+            if getattr(user, 'ai_query_count', 0) >= 5:
+                return Response(
+                    {
+                        "error": "Quota Exceeded",
+                        "message": "You have exhausted your 5 free standard AI swap optimization lookups."
+                    }, 
+                    status=status.HTTP_429_TOO_MANY_REQUESTS
+                )
+            
+            # Increment the usage tracker gate
+            user.ai_query_count = getattr(user, 'ai_query_count', 0) + 1
+            user.save()
+
+        # 2. Business Logic Execution via Groq
+        high_emission_product = request.data.get('product_name')
+        current_co2e = request.data.get('co2e_value', 0)
 
         if not high_emission_product:
             return Response({"error": "Product name is required."}, status=status.HTTP_400_BAD_REQUEST)
@@ -106,37 +128,31 @@ class PremiumEcoSwapperView(APIView):
             return Response({"error": "AI service offline."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
         
         client = Groq(api_key=api_key)
-
-        # Prompt engineering to enforce product suggestions, metrics, and reasoning
         system_instruction = (
-            "You are an advanced Eco-Product Replacement Engine for EcoTrack. "
+            "You are an advanced Eco-Product Replacement Engine for Climatiqa. "
             "Suggest exactly 1 lower-emission alternative for the product provided. "
-            "State clearly: 1) What the replacement is. 2) By what specific measure/percentage "
-            "it reduces emissions compared to the original. 3) The precise science of why. "
-            "Be specific, clean, and concise. Do not use conversational intro filler."
+            "State clearly: 1) What the replacement is. 2) By what specific percentage "
+            "it reduces emissions. 3) The precise science of why."
         )
-
-        user_input = f"Suggest a replacement for: '{high_emission_product}' which currently emits {current_co2e} kg CO2e."
 
         try:
             completion = client.chat.completions.create(
                 model="llama-3.1-8b-instant",
                 messages=[
                     {"role": "system", "content": system_instruction},
-                    {"role": "user", "content": user_input}
+                    {"role": "user", "content": f"Suggest a replacement for: '{high_emission_product}' emitting {current_co2e} kg CO2e."}
                 ],
                 temperature=0.2,
                 max_tokens=200
             )
             
-            ai_analysis = completion.choices[0].message.content
             return Response({
                 "original_item": high_emission_product,
-                "replacement_analysis": ai_analysis
+                "replacement_analysis": completion.choices[0].message.content
             }, status=status.HTTP_200_OK)
 
         except Exception as e:
-            return Response({"error": "Failed to generate AI analytics."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({"error": "AI Engine failure"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
  
 class CustomRegisterView(APIView):
     """
