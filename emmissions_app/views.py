@@ -1,12 +1,15 @@
 # your_app/views.py
 import os
 import requests
+import json  # Added: Required to parse JSON content from Groq response payload
 from groq import Groq
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework import status, permissions
+from pypdf import PdfReader
 
 from .serializers import SystemComplaintSerializer
 from .utils import generate_mpesa_credentials, get_mpesa_callback_url
@@ -262,3 +265,148 @@ class MpesaCheckoutView(APIView):
         except Exception as e:
             return Response({"error": f"Failed to connect to gateway: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
+class MpesaCarbonmarkCallbackView(APIView):
+    """
+    The closing loop endpoint. Incepts Safaricom payment confirmations,
+    converts the parameters, and communicates directly with Carbonmark's
+    REST API to programmatically retire carbon credits via your key.
+    """
+    permission_classes = [permissions.AllowAny] # Safaricom demands open webhook visibility
+
+    def post(self, request):
+        stk_callback = request.data.get("Body", {}).get("stkCallback", {})
+        result_code = stk_callback.get("ResultCode")
+        
+        if result_code == 0: # 0 indicates the user input their M-Pesa PIN successfully
+            # Extract target footprint to offset passed dynamically via your query parameters
+            # e.g., your callback URL was: https://yourdomain.com/api/callback/?user_id=1&offset_kg=12
+            user_id = request.GET.get("user_id")
+            offset_kg = request.GET.get("offset_kg", "10")
+            
+            try:
+                user = User.objects.get(id=user_id)
+                
+                # Call Carbonmark REST offset retirement endpoint
+                carbonmark_url = "https://api.carbonmark.com/v1/retirements"
+                headers = {
+                    "Authorization": f"Bearer {os.environ.get('CARBONMARK_API_KEY')}",
+                    "Content-Type": "application/json"
+                }
+                
+                # Carbonmark payload to retire micro-fractions of carbon assets instantly
+                payload = {
+                    "quantity": float(offset_kg) / 1000.0, # Convert kilograms to metric tonnes
+                    "project_id": "VCS-981", # Replace with your target verified project registry ID
+                    "beneficiary_address": user.email,
+                    "retirement_reason": f"Climatiqa Target Clearance for user {user.username}"
+                }
+                
+                response = requests.post(carbonmark_url, json=payload, headers=headers, timeout=10)
+                
+                if response.status_code in [200, 201]:
+                    # Deduct the offset amount from user's month-to-date tracking column balance
+                    profile = user.userprofile
+                    profile.current_month_accumulated_co2_kg = max(0, profile.current_month_accumulated_co2_kg - float(offset_kg))
+                    profile.save()
+                    
+                    return Response({"status": "Success. Carbonmark Credit Programmatically Retired."}, status=status.HTTP_200_OK)
+                
+            except Exception as e:
+                return Response({"error": f"Internal mapping error: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                
+        return Response({"message": "Transaction declined by consumer handset"}, status=status.HTTP_200_OK)
+    
+class ProductScannerIngestionView(APIView):
+    """
+    Ingests scanned product QR text or uploaded PDF files.
+    Calculates footprints and maps them against user budget targets
+    to return dynamic GREEN, YELLOW, or RED styling states to React.
+    """
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+
+    def post(self, request, *args, **kwargs):
+        user = request.user
+        raw_text_content = ""
+
+        # 1. Parse Data Input (File Upload vs Raw QR Text)
+        if 'file' in request.FILES:
+            pdf_file = request.FILES['file']
+            try:
+                reader = PdfReader(pdf_file)
+                for page in reader.pages:
+                    raw_text_content += page.extract_text() or ""
+            except Exception as e:
+                return Response({"error": f"PDF extraction failed: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            raw_text_content = request.data.get("qr_payload") or request.data.get("product_name")
+
+        if not raw_text_content:
+            return Response({"error": "No product metadata or file provided."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 2. Extract Details & Estimate Footprint using Llama 3.1 on Groq
+        api_key = os.environ.get("GROQ_API_KEY")
+        if not api_key:
+            return Response({"error": "AI Engine Offline."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+        client = Groq(api_key=api_key)
+        system_instruction = (
+            "You are an eco-compliance processor. Analyze the input text and extract the item name. "
+            "Estimate its carbon footprint lifecycle weight in Kilograms of CO2e. "
+            "Return a strict JSON object with keys: 'product_name' and 'estimated_co2_kg'. "
+            "Do not include conversational conversational text or formatting outside the JSON."
+        )
+
+        try:
+            completion = client.chat.completions.create(
+                model="llama-3.1-8b-instant",
+                messages=[
+                    {"role": "system", "content": system_instruction},
+                    {"role": "user", "content": raw_text_content}
+                ],
+                temperature=0.1,
+                response_format={"type": "json_object"}
+            )
+            
+            extracted = json.loads(completion.choices[0].message.content)
+            product_name = extracted.get("product_name", "Unknown Item")
+            estimated_co2 = float(extracted.get("estimated_co2_kg", 0.0))
+        except Exception as e:
+            return Response({"error": f"AI Parsing failure: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        # 3. Target Threshold Boundaries Check
+        profile = getattr(user, 'userprofile', None)
+        if not profile:
+            return Response({"error": "UserProfile missing."}, status=status.HTTP_404_NOT_FOUND)
+
+        monthly_budget = getattr(profile, 'monthly_carbon_budget_kg', 300.0)
+        current_accumulated = getattr(profile, 'current_month_accumulated_co2_kg', 0.0)
+        projected_total = current_accumulated + estimated_co2
+        
+        # Base financial estimation conversion rule (KES 15 per kg CO2)
+        offset_cost_kes = int(max(5, estimated_co2 * 15))
+
+        # 4. Assign the Dynamic Color Advisory Tiers
+        if projected_total > (monthly_budget * 2):
+            tier = "RED"
+            msg = "Action Restricted: Massive carbon budget overshoot."
+        elif projected_total > monthly_budget:
+            tier = "YELLOW"
+            msg = "Target Exceeded: Bridgeable by programmatically purchasing Carbonmark credits via M-Pesa."
+        else:
+            tier = "GREEN"
+            msg = "Safe Choice: This fits perfectly inside your active budget parameters."
+
+        return Response({
+            "product_name": product_name,
+            "calculated_footprint_kg": estimated_co2,
+            "offset_cost_kes": offset_cost_kes,
+            "user_metrics": {
+                "current_month_total": current_accumulated,
+                "monthly_budget": monthly_budget
+            },
+            "advisory_status": {
+                "tier": tier,
+                "message": msg
+            }
+        }, status=status.HTTP_200_OK)
