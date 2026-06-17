@@ -2,10 +2,10 @@
 from django.contrib import admin
 from django.urls import path
 from emmissions_app.views import (
-    ComplaintFunnelView, 
-    PremiumEcoSwapperView, 
+    ComplaintFunnelView,
+    PremiumAIActionView, 
     CustomRegisterView, 
-    PremiumAICoachView,
+    CustomLoginView,
     MpesaCheckoutView,
     MpesaCarbonmarkCallbackView,
     ProductScannerIngestionView  # Fully integrated here now!
@@ -17,15 +17,14 @@ urlpatterns = [
     
     # Auth Management
     path('api/auth/register/', CustomRegisterView.as_view(), name='custom-register'),
-    path('api/auth/login/', TokenObtainPairView.as_view(), name='token-obtain-pair'),
+    path('api/auth/login/', CustomLoginView.as_view(), name='custom-login'),
     path('api/auth/token/refresh/', TokenRefreshView.as_view(), name='token-refresh'),
     
     # Systems & Feedback
     path('api/feedback/complaints/', ComplaintFunnelView.as_view(), name='complaints-funnel'),
     
     # AI Optimizers
-    path('api/premium/ai-coach/', PremiumAICoachView.as_view(), name='premium-ai-coach'),
-    path('api/premium/eco-swap/', PremiumEcoSwapperView.as_view(), name='premium-eco-swap'),
+    path('api/premium/ai-optimizer/', PremiumAIActionView.as_view(), name='premium-ai-optimizer'),
     
     # Document / QR Parsing Engine
     path('api/scanner/ingest/', ProductScannerIngestionView.as_view(), name='scanner-ingest'),
@@ -33,4 +32,5 @@ urlpatterns = [
     # Payments & Offsets
     path('api/payments/checkout/', MpesaCheckoutView.as_view(), name='mpesa-checkout'),
     path('api/payments/mpesa-callback/', MpesaCarbonmarkCallbackView.as_view(), name='mpesa-callback'),
+
 ]

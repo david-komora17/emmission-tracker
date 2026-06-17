@@ -9,68 +9,125 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework import status, permissions
+from rest_framework_simplejwt.views import TokenObtainPairView
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+from rest_framework.throttling import UserRateThrottle
 from pypdf import PdfReader
 
 from .serializers import SystemComplaintSerializer
 from .utils import generate_mpesa_credentials, get_mpesa_callback_url
 from .permissions import IsOwner, IsHighestPaidTier  # The permission class you wrote in Week 1
 from .services.ai_coach import generate_eco_recommendations
-from .models import UserProfile
+from .models import UserProfile, ActivityLog, SystemComplaint
 from django.contrib.auth.models import User
 
 # Hardcoded Security Gateways
 ADMIN_SIGNUP_SECRET = "ClimatiqaSecureAdmin2026!Create"
-ADMIN_LOGIN_SECRET = "ClimatiqaAdminSessionGateVerify2026"
 
-
-
-class PremiumAICoachView(APIView):
+class PremiumTierPermission(IsAuthenticated):
     """
-    Endpoint that fetches the user's latest tracked carbon metrics 
-    and pipes them into Llama 3.1 via Groq for instantaneous suggestions.
+    Custom permission layer ensuring only users with active 
+    premium tier subscription rows can utilize AI optimization services.
     """
-    # Enforces that users must be logged in AND have an active premium tier
-    permission_classes = [IsAuthenticated, IsHighestPaidTier]
-
-    def get(self, request, *args, **kwargs):
-        user = request.user
+    def has_permission(self, request, view):
+        # Check standard login status first via DRF's built-in IsAuthenticated
+        if not super().has_permission(request, view):
+            return False
         
         try:
-            # Pull the single most recent activity entry logged by this user
-            latest_log = Activity.objects.filter(user=user).latest('created_at')
-        except Activity.DoesNotExist:
-            return Response(
-                {"suggestions": ["Log your first activity to unlock custom AI coaching tips!"]},
-                status=status.HTTP_200_OK
+            # Safely access the user's related profile record
+            profile = request.user.user_profile  
+            return bool(profile.is_premium)     
+        except AttributeError:
+            return False
+        
+class PremiumAIActionView(APIView):
+    # (Your permission and throttle classes remain active here)
+    permission_classes = [PremiumTierPermission]
+    throttle_classes = [UserRateThrottle]
+
+    def post(self, request):
+        task_type = request.data.get("task")
+        groq_key = os.getenv("GROQ_API_KEY")
+
+        if not groq_key:
+            return Response({"error": "AI Engine Offline."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+        if task_type == "route":
+            origin = request.data.get("origin")
+            destination = request.data.get("destination")
+            vehicle_type = request.data.get("vehicle_type")  # e.g., GASOLINE
+            vehicle_make = request.data.get("vehicle_make")  # e.g., Jaguar F-Type
+
+            if not origin or not destination:
+                return Response({"error": "Origin and destination fields are required."}, status=status.HTTP_400_BAD_REQUEST)
+
+            # 1. Hit the Free Open Source Routing Machine (OSRM) API
+            # This demo endpoint uses coordinates. For text addresses, we use OSRM's free demo engine or approximate.
+            # For rapid development, we pass the textual locations directly to Llama to act as the spatial engine:
+            
+            prompt = (
+                f"You are an advanced multi-modal transit optimizer integrated with a Mapbox WebGL frontend.\n"
+                f"The user wants to travel from {origin} to {destination} using a {vehicle_make} ({vehicle_type} engine).\n"
+                f"1. Estimate the distance between these two points in Nairobi.\n"
+                f"2. Provide highly specific milestone instructions. For example: 'After 2.5km, park the Jaguar and catch the electric train.'\n"
+                f"3. Crucially, your response must be valid JSON matching this exact structure so the frontend can parse it:\n"
+                f"{{\n"
+                f"  \"estimated_distance_km\": 12.5,\n"
+                f"  \"milestones\": [\n"
+                f"    {{\"distance_mark\": \"0km\", \"mode\": \"Drive\", \"text\": \"Start driving your Jaguar F-Type\"}},\n"
+                f"    {{\"distance_mark\": \"2.5km\", \"mode\": \"Train\", \"text\": \"Park at the transit hub and board the Electric Train to bypass emissions\"}}\n"
+                f"  ],\n"
+                f"  \"narrative\": \"Your full carbon coaching summary paragraph goes here.\"\n"
+                f"}}\n"
+                f"Return ONLY the JSON block. No conversational introduction or markdown wrappers."
             )
 
-        # Call our isolated service layer
-        ai_tips = generate_eco_recommendations(
-            category=latest_log.category,       # e.g., 'transportation', 'home_energy'
-            amount=latest_log.amount,           # e.g., 45 (miles or kWh)
-            co2e_value=latest_log.co2e_metric  # Evaluated by Carbon Interface API in Week 2
-        )
+            try:
+                url = "https://api.groq.com/openai/v1/chat/completions"
+                headers = {"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"}
+                payload = {
+                    "model": "llama3-8b-8192",
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": 0.2  # Low temperature keeps JSON outputs strict and reliable
+                }
+                
+                groq_response = requests.post(url, json=payload, headers=headers, timeout=10)
+                ai_text = groq_response.json()['choices'][0]['message']['content']
+                
+                # Parse the strict JSON string out to hand it cleanly back to React
+                clean_json_data = json.loads(ai_text)
+                return Response(clean_json_data, status=status.HTTP_200_OK)
 
-        return Response(
-            {
-                "meta": {
-                    "last_logged_category": latest_log.category,
-                    "impact_evaluated": f"{latest_log.co2e_metric} kg CO2e"
-                },
-                "suggestions": ai_tips
-            },
-            status=status.HTTP_200_OK
-        )
+            except Exception as e:
+                return Response({"error": f"AI Engine Handshake Failed: {str(e)}"}, status=status.HTTP_502_BAD_GATEWAY)
     
-class ComplaintFunnelView (APIView):
+class IsSystemAdmin(permissions.BasePermission):
     """
-    Dual-role view.
-    - Authenticated Users can POST complaints via the widget.
-    - Admin accounts can GET a list of all system complaints.
+    Custom permission layer ensuring only staff accounts can read aggregated feedback data.
     """
+    def has_permission(self, request, view):
+        return bool(request.user and request.user.is_authenticated and request.user.is_staff)
+    
+class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
+    def validate(self, attrs):
+        data = super().validate(attrs)
+        data['role'] = "ADMIN" if self.user.is_staff else "USER"
+        return data
+
+class ComplaintFunnelView(APIView):
+    """
+    Dual-role system dashboard funnel view.
+    - Authenticated users (USER and ADMIN) can POST system complaints.
+    - System Admin staff accounts can GET a list of all complaints.
+    """
+    # Enforce base authentication globally across both actions first
+    permission_classes = [IsAuthenticated]
+
     def get_permissions(self):
+        # Overrides permission constraints selectively based on HTTP method state
         if self.request.method == 'GET':
-            return [IsOwner()]
+            return [IsSystemAdmin()]
         return [IsAuthenticated()]
 
     def get(self, request):
@@ -81,7 +138,6 @@ class ComplaintFunnelView (APIView):
     def post(self, request):
         serializer = SystemComplaintSerializer(data=request.data)
         if serializer.is_valid():
-            # Automatically bind the logged in user to their complaint row.
             serializer.save(user=request.user)
             return Response(
                 {"message": "Complaint is received and processed. Expect feedback shortly!"},
@@ -89,108 +145,75 @@ class ComplaintFunnelView (APIView):
             )
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
-# Create a throttling policy inside your app or place this logic cleanly 
-# Let's adjust PremiumEcoSwapperView inside your views.py to implement it:
 
-class PremiumEcoSwapperView(APIView):
+class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     """
-    Tracks 5 consistent queries for free tier users, rendering HTTP 429 
-    when exhausted to prompt React upgrade card layout rendering.
-    Unlocks infinite queries for Premium users.
+    Standard login serializer. No login secrets required.
     """
-    permission_classes = [IsAuthenticated] # Loosen permission so free users can use their quota
+    def validate(self, attrs):
+        data = super().validate(attrs)
+        # Append role to the login payload dynamically for the React client
+        data['role'] = "ADMIN" if self.user.is_staff else "USER"
+        return data
 
-    def post(self, request):
-        user = request.user
-        
-        # 1. Enforce the 5-query quota ceiling for free tier users
-        if not getattr(user, 'is_premium', False):
-            # Fallback to check if user profile fields exist
-            if getattr(user, 'ai_query_count', 0) >= 5:
-                return Response(
-                    {
-                        "error": "Quota Exceeded",
-                        "message": "You have exhausted your 5 free standard AI swap optimization lookups."
-                    }, 
-                    status=status.HTTP_429_TOO_MANY_REQUESTS
-                )
-            
-            # Increment the usage tracker gate
-            user.ai_query_count = getattr(user, 'ai_query_count', 0) + 1
-            user.save()
 
-        # 2. Business Logic Execution via Groq
-        high_emission_product = request.data.get('product_name')
-        current_co2e = request.data.get('co2e_value', 0)
+class CustomLoginView(TokenObtainPairView):
+    """
+    The Login Endpoint. 
+    Requires ONLY username and personal password. 
+    Admin accounts log in normally without needing a login secret.
+    """
+    serializer_class = CustomTokenObtainPairSerializer
 
-        if not high_emission_product:
-            return Response({"error": "Product name is required."}, status=status.HTTP_400_BAD_REQUEST)
-        
-        api_key = os.environ.get("GROQ_API_KEY")
-        if not api_key:
-            return Response({"error": "AI service offline."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
-        
-        client = Groq(api_key=api_key)
-        system_instruction = (
-            "You are an advanced Eco-Product Replacement Engine for Climatiqa. "
-            "Suggest exactly 1 lower-emission alternative for the product provided. "
-            "State clearly: 1) What the replacement is. 2) By what specific percentage "
-            "it reduces emissions. 3) The precise science of why."
-        )
 
-        try:
-            completion = client.chat.completions.create(
-                model="llama-3.1-8b-instant",
-                messages=[
-                    {"role": "system", "content": system_instruction},
-                    {"role": "user", "content": f"Suggest a replacement for: '{high_emission_product}' emitting {current_co2e} kg CO2e."}
-                ],
-                temperature=0.2,
-                max_tokens=200
-            )
-            
-            return Response({
-                "original_item": high_emission_product,
-                "replacement_analysis": completion.choices[0].message.content
-            }, status=status.HTTP_200_OK)
-
-        except Exception as e:
-            return Response({"error": "AI Engine failure"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
- 
 class CustomRegisterView(APIView):
     """
-    Implicit RBAC Registration Engine.
-    Removes the explicit 'role' parameter. Accounts default to 'USER' status.
-    If the correct signup_secret is present in the payload, they are automatically
-    provisioned as a system Administrator.
+    Registration Engine.
+    - Username, password, and phone_number are strictly mandatory for everyone.
+    - No two accounts can register using the same phone number.
+    - Passing the correct signup_secret provisions an Admin account (is_staff).
     """
     def post(self, request):
         username = request.data.get('username')
         password = request.data.get('password')
         email = request.data.get('email')
-        signup_secret = request.data.get('signup_secret', '')# Optional for users required for admins.
+        phone_number = request.data.get('phone_number')  # Expected format: 2547XXXXXXXX
+        signup_secret = request.data.get('signup_secret', '')
 
-        if not username or not password:
-            return Response({"error": "Credentials required."}, status=status.HTTP_400_BAD_REQUEST)
+        # 1. Enforce Mandatory field checks
+        if not username or not password or not phone_number:
+            return Response(
+                {"error": "Username, password, and phone_number are strictly required fields."}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
+        # 2. Prevent Duplicate Usernames
         if User.objects.filter(username=username).exists():
-            return Response({"error": "User already exists."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"error": "Username already exists."}, status=status.HTTP_400_BAD_REQUEST)
 
-        # 1. Initialize the base user instance
+        # 3. Prevent Duplicate Phone Numbers across all system accounts
+        if UserProfile.objects.filter(phone_number=phone_number).exists():
+            return Response({"error": "This phone number is already linked to another account."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 4. Create the Django User instance
         user = User.objects.create_user(username=username, email=email, password=password)
 
-        # 2. Dynamic roledetection based on the secret_key payload
+        # 5. Handle Admin provisioning explicitly via sign-up secret check
         if signup_secret:
             if signup_secret == ADMIN_SIGNUP_SECRET:
                 user.is_staff = True
                 user.save()
             else:
-            # If they tried to pass a secret but it's wrong, halt execution to prevent accidental signups
+                # Malformed or wrong secret: delete the user and abort
                 user.delete()
-                return Response({"error": "Invalid Sign-Up Secret. Account creation aborted."}, status=status.HTTP_401_UNAUTHORIZED)
+                return Response({"error": "Invalid Sign-Up Secret. Admin creation rejected."}, status=status.HTTP_401_UNAUTHORIZED)
         
-        # 3. Create the profile attachment layer
+        # 6. Save verified unique phone number to profile layer
         profile, created = UserProfile.objects.get_or_create(user=user)
+        profile.phone_number = phone_number
+        profile.save()
+
+        # Generate structural tokens
         refresh = RefreshToken.for_user(user)
 
         return Response({
@@ -200,31 +223,27 @@ class CustomRegisterView(APIView):
             "role": "ADMIN" if user.is_staff else "USER"
         }, status=status.HTTP_201_CREATED)
 
-class SecretAdminHeaderPermission(permissions.BasePermission):
-    """
-    Checks for the explicit hardcoded system Admin Login Secret via request headers.
-    """
-    def has_permission(self, request, view):
-        if not request.user or not request.user.is_authenticated or not request.user.is_staff:
-            return False
-        
-        # Look for custom verification header token
-        client_secret = request.headers.get('X-Admin-Login-Secret')
-        return client_secret == ADMIN_LOGIN_SECRET
 
 class MpesaCheckoutView(APIView):
     """
-    Initiates an M-Pesa Express STK Push payment sequence.
-    Works seamlessly across Vercel cloud deployments and local tunnels.
+    STK Push checkout sequence.
+    Pulls phone number natively out of the authenticated user's DB profile.
     """
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        phone_number = request.data.get('phone_number') # Format: 2547XXXXXXXX
-        amount = request.data.get('amount', 30) # Default subscription cost
+        user = request.user
+        amount = request.data.get('amount', 30)
+
+        # Silently fetch phone number from DB
+        try:
+            profile = user.userprofile
+            phone_number = profile.phone_number
+        except UserProfile.DoesNotExist:
+            return Response({"error": "UserProfile missing."}, status=status.HTTP_404_NOT_FOUND)
 
         if not phone_number:
-            return Response({"error": "Phone number is required."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"error": "No phone number found for this profile."}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             token, password, timestamp = generate_mpesa_credentials()
@@ -241,11 +260,10 @@ class MpesaCheckoutView(APIView):
                 "PartyB": os.environ.get('MPESA_EXPRESS_SHORTCODE', '174379'),
                 "PhoneNumber": phone_number,
                 "CallBackURL": callback_url,
-                "AccountReference": f"Climatiqa-{request.user.username}",
+                "AccountReference": f"Climatiqa-{user.username}",
                 "TransactionDesc": "Premium Upgrade Subscription"
             }
             
-            # Target Safaricom Sandbox
             url = "https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest"
             if os.environ.get('MPESA_ENVIRONMENT') == 'production':
                 url = "https://api.safaricom.co.ke/mpesa/stkpush/v1/processrequest"
@@ -255,7 +273,7 @@ class MpesaCheckoutView(APIView):
 
             if response_data.get("ResponseCode") == "0":
                 return Response({
-                    "message": "STK Push initiated successfully. Check your handset for the PIN prompt.",
+                    "message": "STK Push initiated. Verify on handset.",
                     "MerchantRequestID": response_data.get("MerchantRequestID"),
                     "CheckoutRequestID": response_data.get("CheckoutRequestID")
                 }, status=status.HTTP_200_OK)
@@ -263,8 +281,8 @@ class MpesaCheckoutView(APIView):
                 return Response({"error": response_data.get("ResponseDescription", "Gateway error")}, status=status.HTTP_400_BAD_REQUEST)
 
         except Exception as e:
-            return Response({"error": f"Failed to connect to gateway: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    
+            return Response({"error": f"Gateway connection failure: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+         
 class MpesaCarbonmarkCallbackView(APIView):
     """
     The closing loop endpoint. Incepts Safaricom payment confirmations,
@@ -345,34 +363,66 @@ class ProductScannerIngestionView(APIView):
             return Response({"error": "No product metadata or file provided."}, status=status.HTTP_400_BAD_REQUEST)
 
         # 2. Extract Details & Estimate Footprint using Llama 3.1 on Groq
-        api_key = os.environ.get("GROQ_API_KEY")
-        if not api_key:
-            return Response({"error": "AI Engine Offline."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        # Allow test/dev clients to supply the parsed values directly to skip the AI step.
+        product_name = request.data.get("product_name")
+        estimated_co2 = None
 
-        client = Groq(api_key=api_key)
-        system_instruction = (
-            "You are an eco-compliance processor. Analyze the input text and extract the item name. "
-            "Estimate its carbon footprint lifecycle weight in Kilograms of CO2e. "
-            "Return a strict JSON object with keys: 'product_name' and 'estimated_co2_kg'. "
-            "Do not include conversational conversational text or formatting outside the JSON."
-        )
+        # Client override (useful for Thunder Client tests): if provided, skip AI call
+        estimated_override = request.data.get("estimated_co2_kg")
+        if estimated_override is not None:
+            try:
+                estimated_co2 = float(estimated_override)
+            except Exception:
+                return Response({"error": "estimated_co2_kg must be a numeric value."}, status=status.HTTP_400_BAD_REQUEST)
+            product_name = product_name or "Unknown Item"
+        else:
+            api_key = os.environ.get("GROQ_API_KEY")
+            if not api_key:
+                return Response({"error": "AI Engine Offline."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
-        try:
-            completion = client.chat.completions.create(
-                model="llama-3.1-8b-instant",
-                messages=[
-                    {"role": "system", "content": system_instruction},
-                    {"role": "user", "content": raw_text_content}
-                ],
-                temperature=0.1,
-                response_format={"type": "json_object"}
+            client = Groq(api_key=api_key)
+            system_instruction = (
+                "You are an eco-compliance processor. Analyze the input text and extract the item name. "
+                "Estimate its carbon footprint lifecycle weight in Kilograms of CO2e. "
+                "Return a strict JSON object with keys: 'product_name' and 'estimated_co2_kg'. "
+                "Do not include conversational text or formatting outside the JSON."
             )
-            
-            extracted = json.loads(completion.choices[0].message.content)
-            product_name = extracted.get("product_name", "Unknown Item")
-            estimated_co2 = float(extracted.get("estimated_co2_kg", 0.0))
-        except Exception as e:
-            return Response({"error": f"AI Parsing failure: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+            try:
+                completion = client.chat.completions.create(
+                    model="llama-3.1-8b-instant",
+                    messages=[
+                        {"role": "system", "content": system_instruction},
+                        {"role": "user", "content": raw_text_content}
+                    ],
+                    temperature=0.1,
+                    response_format={"type": "json_object"}
+                )
+
+                content = completion.choices[0].message.content
+
+                # Handle different possible response shapes from the SDK
+                if isinstance(content, dict):
+                    extracted = content
+                else:
+                    # Try to parse JSON string; if the model returned extra text, extract JSON block
+                    try:
+                        extracted = json.loads(content)
+                    except Exception:
+                        start = str(content).find('{')
+                        end = str(content).rfind('}')
+                        if start != -1 and end != -1 and end > start:
+                            try:
+                                extracted = json.loads(str(content)[start:end+1])
+                            except Exception as e:
+                                raise e
+                        else:
+                            raise ValueError("Unable to parse AI response as JSON")
+
+                product_name = product_name or extracted.get("product_name", "Unknown Item")
+                estimated_co2 = float(extracted.get("estimated_co2_kg", 0.0))
+            except Exception as e:
+                return Response({"error": f"AI Parsing failure: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         # 3. Target Threshold Boundaries Check
         profile = getattr(user, 'userprofile', None)

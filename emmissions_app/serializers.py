@@ -1,4 +1,4 @@
-# emmissions_project/serializers.py
+# emmissions_app/serializers.py
 from rest_framework import serializers
 from .models import SystemComplaint
 

@@ -1,42 +1,52 @@
+# sample admin sign up with wrong secret
 {
-    "username": "johndoe_eco",
-    "email": "johndoe@example.com",
-    "password": "UserSecurePass123",
-    "role": "USER",
-    "phone_number": "0711222333"
+    "username": "davis_admin",
+    "password": "AdminPassword123!",
+    "phone_number": "254711111111",
+    "signup_secret": "WRONG_SECRET"
 }
 
+# sample admin sign up with correct secret
 {
-    "username": "johndoe_eco",
-    "password": "UserSecurePass123"
-}
-
-# for admins
-{
-    "username": "admin_david",
-    "email": "david@ecotrack.com",
-    "password": "AdminSecurePass123",
-    "role": "ADMIN",
+    "username": "davis_admin",
+    "password": "AdminPassword123!",
+    "phone_number": "254711111111",
     "signup_secret": "ClimatiqaSecureAdmin2026!Create"
 }
 
+# sign up with duplicate phone number
 {
-    "username": "admin_david",
-    "password": "AdminSecurePass123"
+    "username": "regular_shopper",
+    "password": "UserPassword123!",
+    "phone_number": "254711111111"
+}
+
+# normal admin login
+{
+    "username": "davis_admin",
+    "password": "AdminPassword123!"
 }
 
 
-# sign up
+# USER SIGNUP
 {
-    "username": "mary_eco",
-    "email": "mary@example.com",
-    "password": "MaryPassword123"
+    "username": "brian_eco",
+    "password": "ConsumerPassword123!",
+    "email": "brian@domain.com",
+    "phone_number": "254722222222"
 }
 
-#Admin 2
+#normal user login
 {
-    "username": "david_admin",
-    "email": "david@ecotrack.com",
-    "password": "DavidAdminPassword123",
-    "signup_secret": "ClimatiqaSecureAdmin2026!Create"
+    "username": "brian_eco",
+    "password": "ConsumerPassword123!"
+} 
+elizabeth_tunda: {
+    "access_token": "",
+    "refresh_token": "",
+}
+
+grace_gloriah: {
+    "access_token": "",
+    "refresh_token": "",
 }
