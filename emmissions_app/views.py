@@ -5,7 +5,7 @@ import json  # Added: Required to parse JSON content from Groq response payload
 from groq import Groq
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework import status, permissions
@@ -165,40 +165,65 @@ class CustomLoginView(TokenObtainPairView):
     """
     serializer_class = CustomTokenObtainPairSerializer
 
-
 class CustomRegisterView(APIView):
     """
     Registration Engine.
-    - Username, password, and phone_number are strictly mandatory for everyone.
-    - No two accounts can register using the same phone number.
+    - Username and password are strictly mandatory for everyone.
+    - Email is mandatory and must contain a valid '@' symbol.
+    - Phone number is optional, but no two accounts can share the same non-null phone number.
     - Passing the correct signup_secret provisions an Admin account (is_staff).
     """
+
+    permission_classes = [AllowAny]
     def post(self, request):
         username = request.data.get('username')
         password = request.data.get('password')
-        email = request.data.get('email')
-        phone_number = request.data.get('phone_number')  # Expected format: 2547XXXXXXXX
+        email = request.data.get('email', '').strip()  # Capture and strip whitespace
+        phone_number = request.data.get('phone_number')  # Expected format: 2547XXXXXXXX or None/blank
         signup_secret = request.data.get('signup_secret', '')
 
-        # 1. Enforce Mandatory field checks
-        if not username or not password or not phone_number:
+        # 1. Enforce Mandatory field checks (Removed phone_number from here)
+        if not username or not password:
             return Response(
-                {"error": "Username, password, and phone_number are strictly required fields."}, 
+                {"error": "Username and password are strictly required fields."}, 
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # 2. Prevent Duplicate Usernames
+        # 2. Enforce Mandatory Email Presence and Format check
+        if not email:
+            return Response(
+                {"error": "Email is a strictly required field."}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        if '@' not in email:
+            return Response(
+                {"error": "Invalid email formatting. Missing '@' symbol."}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # 3. Prevent Duplicate Usernames
         if User.objects.filter(username=username).exists():
             return Response({"error": "Username already exists."}, status=status.HTTP_400_BAD_REQUEST)
 
-        # 3. Prevent Duplicate Phone Numbers across all system accounts
-        if UserProfile.objects.filter(phone_number=phone_number).exists():
-            return Response({"error": "This phone number is already linked to another account."}, status=status.HTTP_400_BAD_REQUEST)
+        # 4. Handle Optional but Unique Phone Number Check
+        cleaned_phone = None
+        if phone_number:
+            cleaned_phone = str(phone_number).strip()
+            if cleaned_phone == "":
+                cleaned_phone = None
+            else:
+                # Prevent Duplicate Phone Numbers across all system accounts only if provided
+                if UserProfile.objects.filter(phone_number=cleaned_phone).exists():
+                    return Response(
+                        {"error": "This phone number is already linked to another account."}, 
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
 
-        # 4. Create the Django User instance
+        # 5. Create the Django User instance
         user = User.objects.create_user(username=username, email=email, password=password)
 
-        # 5. Handle Admin provisioning explicitly via sign-up secret check
+        # 6. Handle Admin provisioning explicitly via sign-up secret check
         if signup_secret:
             if signup_secret == ADMIN_SIGNUP_SECRET:
                 user.is_staff = True
@@ -206,11 +231,11 @@ class CustomRegisterView(APIView):
             else:
                 # Malformed or wrong secret: delete the user and abort
                 user.delete()
-                return Response({"error": "Invalid Sign-Up Secret. Admin creation rejected."}, status=status.HTTP_401_UNAUTHORIZED)
+                return Response({"error": "Invalid Sign-Up Secret."}, status=status.HTTP_401_UNAUTHORIZED)
         
-        # 6. Save verified unique phone number to profile layer
+        # 7. Save verified unique phone number (or None) to profile layer
         profile, created = UserProfile.objects.get_or_create(user=user)
-        profile.phone_number = phone_number
+        profile.phone_number = cleaned_phone
         profile.save()
 
         # Generate structural tokens
@@ -222,43 +247,85 @@ class CustomRegisterView(APIView):
             "refresh_token": str(refresh),
             "role": "ADMIN" if user.is_staff else "USER"
         }, status=status.HTTP_201_CREATED)
-
-
+    
 class MpesaCheckoutView(APIView):
     """
     STK Push checkout sequence.
-    Pulls phone number natively out of the authenticated user's DB profile.
+    Pulls phone number natively out of the authenticated user's DB profile,
+    or accepts an ad-hoc phone number in the request body if missing.
     """
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
         user = request.user
         amount = request.data.get('amount', 30)
+        payload_phone = request.data.get('phone_number')
 
-        # Silently fetch phone number from DB
+        # 1. Resolve phone number location (Self-healing: creates profile if missing)
         try:
-            profile = user.userprofile
-            phone_number = profile.phone_number
-        except UserProfile.DoesNotExist:
-            return Response({"error": "UserProfile missing."}, status=status.HTTP_404_NOT_FOUND)
+            # Fallback to standard lowercase userprofile if custom related_name isn't used
+            profile, created = UserProfile.objects.get_or_create(user=user)
+            saved_phone = profile.phone_number
+        except Exception as e:
+            return Response({"error": f"UserProfile retrieval/creation failed: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        if not phone_number:
-            return Response({"error": "No phone number found for this profile."}, status=status.HTTP_400_BAD_REQUEST)
+        # Prioritize the incoming payload phone over the DB fallback state
+        final_phone = payload_phone or saved_phone
 
+        if not final_phone:
+            return Response(
+                {
+                    "error": "M-Pesa payment requires a mobile phone asset.",
+                    "code": "PHONE_REQUIRED",
+                    "detail": "No phone number linked to your profile. Please provide a phone_number parameter in the request body."
+                }, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Clean the string formatting (Ensure no whitespaces or unexpected characters mess up Daraja)
+        final_phone = str(final_phone).strip()
+
+        # Simple pattern verification for typical Kenyan mobile payloads (2547XXXXXXXX or 2541XXXXXXXX)
+        if not final_phone.startswith('254') or len(final_phone) != 12:
+            return Response(
+                {"error": "Malformed payment phone format. Value must strictly match 2547XXXXXXXX format."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # 2. Dynamic profile save state update
+        # If they didn't have a phone number on profile, save this valid one so their future flows are clean
+        if not saved_phone:
+            profile.phone_number = final_phone
+            profile.save()
+
+        # 3. Proceed to the standard credentials gateway handshake
         try:
-            token, password, timestamp = generate_mpesa_credentials()
+            try:
+                token, password, timestamp = generate_mpesa_credentials()
+            except Exception as auth_error:
+                return Response({
+                    "error": "The generate_mpesa_credentials() helper crashed.",
+                    "details": str(auth_error)
+                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                        
             callback_url = get_mpesa_callback_url(request)
+
+            headers = {
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+                "Accept": "application/json"
+                }
             
-            headers = {"Authorization": f"Bearer {token}"}
+            shortcode = str(os.environ.get('MPESA_EXPRESS_SHORTCODE', '174379')).strip()
             payload = {
-                "BusinessShortCode": os.environ.get('MPESA_EXPRESS_SHORTCODE', '174379'),
+                "BusinessShortCode": shortcode,
                 "Password": password,
                 "Timestamp": timestamp,
                 "TransactionType": "CustomerPayBillOnline",
-                "Amount": int(amount),
-                "PartyA": phone_number,
-                "PartyB": os.environ.get('MPESA_EXPRESS_SHORTCODE', '174379'),
-                "PhoneNumber": phone_number,
+                "Amount": str(int(amount)),
+                "PartyA": final_phone,
+                "PartyB": shortcode,
+                "PhoneNumber": final_phone,
                 "CallBackURL": callback_url,
                 "AccountReference": f"Climatiqa-{user.username}",
                 "TransactionDesc": "Premium Upgrade Subscription"
@@ -268,9 +335,16 @@ class MpesaCheckoutView(APIView):
             if os.environ.get('MPESA_ENVIRONMENT') == 'production':
                 url = "https://api.safaricom.co.ke/mpesa/stkpush/v1/processrequest"
 
-            response = requests.post(url, json=payload, headers=headers)
-            response_data = response.json()
+            response = requests.post(url, json=payload, headers=headers, timeout=10)
 
+            if response.status_code != 200:
+                return Response({
+                    "error": "Safaricom gateway returned a non-JSON status error.",
+                    "status_code": response.status_code,
+                    "raw_response": response.text[:200]
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            response_data = response.json()
             if response_data.get("ResponseCode") == "0":
                 return Response({
                     "message": "STK Push initiated. Verify on handset.",
@@ -278,11 +352,14 @@ class MpesaCheckoutView(APIView):
                     "CheckoutRequestID": response_data.get("CheckoutRequestID")
                 }, status=status.HTTP_200_OK)
             else:
-                return Response({"error": response_data.get("ResponseDescription", "Gateway error")}, status=status.HTTP_400_BAD_REQUEST)
+                return Response(
+                    {"error": response_data.get("ResponseDescription", "Gateway execution rejected by upstream server.")}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
 
         except Exception as e:
             return Response({"error": f"Gateway connection failure: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-         
+             
 class MpesaCarbonmarkCallbackView(APIView):
     """
     The closing loop endpoint. Incepts Safaricom payment confirmations,
@@ -460,3 +537,35 @@ class ProductScannerIngestionView(APIView):
                 "message": msg
             }
         }, status=status.HTTP_200_OK)
+    
+class VoiceLogView(APIView):
+    def post(self, request):
+        raw_text = request.data.get('raw_text', '').lower()
+        
+        if not raw_text:
+            return Response({"error": "No voice transcript found."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Simple, fast, free keyword matching engine
+        if "run" in raw_text or "jog" in raw_text:
+            activity_type = "Running"
+            impact_score = 0.0 # Calculate your metrics
+        elif "bulb" in raw_text or "led" in raw_text:
+            activity_type = "Energy Efficiency Upgrade"
+            impact_score = -10.5
+        else:
+            activity_type = "Generic Activity"
+            impact_score = 0.0
+
+        # Create the database entry seamlessly
+        log = ActivityLog.objects.create(
+            user=request.user,
+            description=f"Voice Logged: {raw_text}",
+            category=activity_type,
+            score=impact_score
+        )
+
+        return Response({
+            "message": "Voice entry synthesized successfully!",
+            "matched_category": activity_type,
+            "raw_transcript": raw_text
+        }, status=status.HTTP_201_CREATED)
