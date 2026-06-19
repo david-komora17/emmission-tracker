@@ -16,7 +16,7 @@ from pypdf import PdfReader
 
 from .serializers import SystemComplaintSerializer
 from .utils import generate_mpesa_credentials, get_mpesa_callback_url
-from .permissions import IsOwner, IsHighestPaidTier  # The permission class you wrote in Week 1
+from .permissions import IsOwner, IsHighestPaidTier  
 from .services.ai_coach import generate_eco_recommendations
 from .models import UserProfile, ActivityLog, SystemComplaint
 from django.contrib.auth.models import User
