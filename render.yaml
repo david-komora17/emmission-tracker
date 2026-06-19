@@ -1,0 +1,6 @@
+services:
+  - type: web
+    name: emmission-tracker-backend
+    runtime: python
+    buildCommand: ./build.sh
+    startCommand: gunicorn emmission_tracker.wsgi:application
