@@ -4,7 +4,7 @@ Django settings for emmissions_project project.
 
 import os
 import dotenv
-import dj_database_url  # Parses the database URL from Render
+import dj_database_url 
 from datetime import timedelta
 from pathlib import Path
 
@@ -20,7 +20,8 @@ SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'django-insecure-jmkzhm(d%&$6*s
 # FIXED LANDMINE 2: Set DEBUG dynamically using Environment Variables
 DEBUG = os.environ.get('DEBUG', 'False') == 'True'
 
-ALLOWED_HOSTS = ['.render.com', 'localhost', '127.0.0.1']
+# UPDATED: Replaced .render.com with .railway.app wildcard pattern
+ALLOWED_HOSTS = ['.railway.app', 'localhost', '127.0.0.1']
 if os.environ.get('PRODUCTION_HOST'):
     ALLOWED_HOSTS.append(os.environ.get('PRODUCTION_HOST'))
 
@@ -86,12 +87,13 @@ WSGI_APPLICATION = 'emmissions_project.wsgi.application'
 
 
 # Database
-# FIXED LANDMINE 4: Unified dynamic database configuration
-# If DATABASE_URL is found (production on Neon/Supabase), it uses it. 
-# If not found (local machine), it checks for a local variable, else falls back to local SQLite file cleanly.
+# UPDATED: Enforced SSL validation. Remote databases like Supabase reject unsecured connections in prod.
 if os.environ.get('DATABASE_URL'):
     DATABASES = {
-        'default': dj_database_url.config(conn_max_age=600)
+        'default': dj_database_url.config(
+            conn_max_age=600,
+            ssl_require=True
+        )
     }
 else:
     DATABASES = {
@@ -125,8 +127,12 @@ USE_TZ = True
 STATIC_URL = 'static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
-# For Django 6.x / WhiteNoise optimization compatibility layout
+# UPDATED: Explicitly retaining the "default" storage key alongside "staticfiles" 
+# to comply directly with Django 6.x default file behavior.
 STORAGES = {
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
     "staticfiles": {
         "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
     },
