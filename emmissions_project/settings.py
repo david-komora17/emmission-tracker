@@ -20,8 +20,8 @@ SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'django-insecure-jmkzhm(d%&$6*s
 # FIXED LANDMINE 2: Set DEBUG dynamically using Environment Variables
 DEBUG = os.environ.get('DEBUG', 'False') == 'True'
 
-# UPDATED: Replaced .render.com with .railway.app wildcard pattern
-ALLOWED_HOSTS = ['.railway.app', 'localhost', '127.0.0.1']
+# UPDATED: Replaced with .render.com 
+ALLOWED_HOSTS = ['.render.com', 'localhost', '127.0.0.1']
 if os.environ.get('PRODUCTION_HOST'):
     ALLOWED_HOSTS.append(os.environ.get('PRODUCTION_HOST'))
 
@@ -92,7 +92,7 @@ WSGI_APPLICATION = 'emmissions_project.wsgi.application'
 # Database Configuration
 # Automatically switches between local testing and Railway production
 
-if os.environ.get('RAILWAY_ENVIRONMENT') or os.environ.get('DATABASE_URL') and os.environ.get('DEBUG') == 'False':
+if os.environ.get('RENDER') or os.environ.get('DATABASE_URL') and os.environ.get('DEBUG') == 'False':
     DATABASES = {
         'default': dj_database_url.config(
             conn_max_age=600,
