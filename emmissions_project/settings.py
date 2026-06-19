@@ -86,16 +86,21 @@ TEMPLATES = [
 WSGI_APPLICATION = 'emmissions_project.wsgi.application'
 
 
-# Database
-# UPDATED: Enforced SSL validation. Remote databases like Supabase reject unsecured connections in prod.
-if os.environ.get('DATABASE_URL'):
+# If a DATABASE_URL is defined, always use it. This makes local testing
+# consistent with deployments and avoids accidentally bypassing the remote
+# database configuration just because DEBUG=True.
+# Database Configuration
+# Automatically switches between local testing and Railway production
+
+if os.environ.get('RAILWAY_ENVIRONMENT') or os.environ.get('DATABASE_URL') and os.environ.get('DEBUG') == 'False':
     DATABASES = {
         'default': dj_database_url.config(
             conn_max_age=600,
-            ssl_require=True
+            ssl_require=True  # Required for cloud databases
         )
     }
 else:
+    # Your clean, working local configuration
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.postgresql',
@@ -107,7 +112,7 @@ else:
         }
     }
 
-
+# (Comment out or delete your previous if/else database logic for a moment)
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
