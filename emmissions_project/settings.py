@@ -21,7 +21,7 @@ SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'django-insecure-jmkzhm(d%&$6*s
 DEBUG = os.environ.get('DEBUG', 'False') == 'True'
 
 # UPDATED: Replaced with .render.com 
-ALLOWED_HOSTS = ['.render.com', 'localhost', '127.0.0.1']
+ALLOWED_HOSTS = ['emmission-tracker.onrender.com', 'localhost', '127.0.0.1']
 if os.environ.get('PRODUCTION_HOST'):
     ALLOWED_HOSTS.append(os.environ.get('PRODUCTION_HOST'))
 
