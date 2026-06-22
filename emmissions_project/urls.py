@@ -8,7 +8,8 @@ from emmissions_app.views import (
     CustomLoginView,
     MpesaCheckoutView,
     MpesaCarbonmarkCallbackView,
-    ProductScannerIngestionView  # Fully integrated here now!
+    ProductScannerIngestionView,  # Fully integrated here now!
+    VoiceLogView  # Added import
 )
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
@@ -28,6 +29,9 @@ urlpatterns = [
     
     # Document / QR Parsing Engine
     path('api/scanner/ingest/', ProductScannerIngestionView.as_view(), name='scanner-ingest'),
+
+    #Audio logging engine
+    path('api/voice/log/', VoiceLogView.as_view(), name='voice-log'),  # Added route
     
     # Payments & Offsets
     path('api/payments/checkout/', MpesaCheckoutView.as_view(), name='mpesa-checkout'),
