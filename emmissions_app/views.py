@@ -16,6 +16,8 @@ from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.throttling import UserRateThrottle
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
+from rest_framework.exceptions import Throttled
+
 
 # Import local modules cleanly
 from .models import UserProfile, ActivityLog, SystemComplaint
@@ -33,20 +35,39 @@ from .serializers import (
 # -------------------------------------------------------------------
 # Permissions Layer
 # -------------------------------------------------------------------
+
 class PremiumTierPermission(IsAuthenticated):
     """
-    Custom permission layer ensuring only users with active 
-    premium tier subscription rows can utilize AI optimization services.
+    Allows full access if is_premium is True.
+    Allows up to 5 lifetime trial calls if is_premium is False.
+    Throws a Throttled 429 exception once limits are exceeded.
     """
     def has_permission(self, request, view):
+        # Ensure user is authenticated via standard JWT first
         if not super().has_permission(request, view):
             return False
+        
         try:
             profile = request.user.user_profile  
-            return bool(profile.is_premium)     
+            
+            # 1. If they bought premium, bypass trial constraints entirely
+            if profile.is_premium:
+                return True
+                
+            # 2. Free Tier Limit Guard: Check if trial threshold is hit
+            if profile.ai_queries_count >= 5:
+                raise Throttled(
+                    detail={
+                        "error": "Beyond this point you need to subscribe to unlock unlimited capabilities.",
+                        "code": "TRIAL_EXPIRED",
+                        "current_usage": profile.ai_queries_count
+                    }
+                )
+                
+            return True
+            
         except AttributeError:
             return False
-        
 class IsSystemAdmin(permissions.BasePermission):
     """
     Custom permission layer ensuring only staff accounts can read aggregated feedback data.
@@ -159,6 +180,10 @@ class PremiumAIActionView(APIView):
                 groq_response = requests.post(url, json=payload, headers=headers, timeout=10)
                 ai_text = groq_response.json()['choices'][0]['message']['content']
                 clean_json_data = json.loads(ai_text)
+
+                profile = request.user.user_profile
+                profile.ai_queries_count += 1
+                profile.save()
                 return Response(clean_json_data, status=status.HTTP_200_OK)
 
             except Exception as e:
@@ -287,7 +312,6 @@ class MpesaCheckoutView(APIView):
         except Exception as e:
             return Response({"error": f"Gateway connection failure: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-
 class MpesaCarbonmarkCallbackView(APIView):
     permission_classes = [permissions.AllowAny]
 
@@ -311,6 +335,14 @@ class MpesaCarbonmarkCallbackView(APIView):
                 user = User.objects.get(id=user_id)
                 profile = user.userprofile
 
+                #Logic to check for whether a premium is due
+                is_premium_upgrade = request.GET.get("upgrade") == "true"
+                if is_premium_upgrade:
+                    # Activate Premium status permanently inside database ledger rows
+                    profile.is_premium = True
+                    profile.save()
+                    return Response(safaricom_success_ack, status=status.HTTP_200_OK)
+                
                 # 2. Guard constraint validation check
                 if not profile.phone_number:
                     # Log internally if needed, but tell Safaricom we received it to prevent repeat retries
