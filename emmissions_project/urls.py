@@ -9,7 +9,8 @@ from emmissions_app.views import (
     MpesaCheckoutView,
     MpesaCarbonmarkCallbackView,
     ProductScannerIngestionView,  # Fully integrated here now!
-    VoiceLogView  # Added import
+    VoiceLogView,  # Added import
+    UserProfileDashboardView  # 1. Imported your profile dashboard view safely
 )
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
@@ -36,5 +37,8 @@ urlpatterns = [
     # Payments & Offsets
     path('api/payments/checkout/', MpesaCheckoutView.as_view(), name='mpesa-checkout'),
     path('api/payments/mpesa-callback/', MpesaCarbonmarkCallbackView.as_view(), name='mpesa-callback'),
+
+    # Endpoint to track my carbon footprint
+    path('api/user/profile/', UserProfileDashboardView.as_view(), name='user-profile-dashboard')
 
 ]

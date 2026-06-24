@@ -7,7 +7,10 @@ from pypdf import PdfReader
 
 from django.contrib.auth.models import User
 from django.db import transaction
+from django.db.models import Sum
+from django.utils import timezone
 
+from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status, permissions
@@ -20,10 +23,9 @@ from rest_framework.exceptions import Throttled
 
 
 # Import local modules cleanly
-from .models import UserProfile, ActivityLog, SystemComplaint
-from .permissions import IsOwner, IsHighestPaidTier 
+from .models import UserProfile, ActivityLog, SystemComplaint, RouteSearchLog
+from .permissions import IsOwner, IsHighestPaidTier, PremiumTierPermission
 from .utils import generate_mpesa_credentials, get_mpesa_callback_url
-from .services.ai_coach import generate_eco_recommendations
 
 # Import the updated serializers repository map
 from .serializers import (
@@ -31,43 +33,7 @@ from .serializers import (
     CustomTokenObtainPairSerializer, 
     CustomRegisterSerializer
 )
-
-# -------------------------------------------------------------------
-# Permissions Layer
-# -------------------------------------------------------------------
-
-class PremiumTierPermission(IsAuthenticated):
-    """
-    Allows full access if is_premium is True.
-    Allows up to 5 lifetime trial calls if is_premium is False.
-    Throws a Throttled 429 exception once limits are exceeded.
-    """
-    def has_permission(self, request, view):
-        # Ensure user is authenticated via standard JWT first
-        if not super().has_permission(request, view):
-            return False
         
-        try:
-            profile = request.user.user_profile  
-            
-            # 1. If they bought premium, bypass trial constraints entirely
-            if profile.is_premium:
-                return True
-                
-            # 2. Free Tier Limit Guard: Check if trial threshold is hit
-            if profile.ai_queries_count >= 5:
-                raise Throttled(
-                    detail={
-                        "error": "Beyond this point you need to subscribe to unlock unlimited capabilities.",
-                        "code": "TRIAL_EXPIRED",
-                        "current_usage": profile.ai_queries_count
-                    }
-                )
-                
-            return True
-            
-        except AttributeError:
-            return False
 class IsSystemAdmin(permissions.BasePermission):
     """
     Custom permission layer ensuring only staff accounts can read aggregated feedback data.
@@ -128,13 +94,8 @@ class CustomRegisterView(APIView):
             "role": "ADMIN" if user.is_staff else "USER"
         }, status=status.HTTP_201_CREATED)
 
-
-# -------------------------------------------------------------------
-# Operations & Processing Views (Premium AI, Payments & Ingestion)
-# -------------------------------------------------------------------
 class PremiumAIActionView(APIView):
     permission_classes = [PremiumTierPermission]
-    throttle_classes = [UserRateThrottle]
 
     def post(self, request):
         task_type = request.data.get("task")
@@ -151,44 +112,99 @@ class PremiumAIActionView(APIView):
 
             if not origin or not destination:
                 return Response({"error": "Origin and destination fields are required."}, status=status.HTTP_400_BAD_REQUEST)
-            
-            prompt = (
-                f"You are an advanced multi-modal transit optimizer integrated with a Mapbox WebGL frontend.\n"
-                f"The user wants to travel from {origin} to {destination} using a {vehicle_make} ({vehicle_type} engine).\n"
-                f"1. Estimate the distance between these two points in Nairobi.\n"
-                f"2. Provide highly specific milestone instructions.\n"
-                f"3. Crucially, your response must be valid JSON matching this exact structure:\n"
+                        
+            system_guidance = (
+                "You are a strict, analytical transit emission calculation engine.\n"
+                "Your core task is to calculate realistic routing distances and carbon metrics based on the input metrics.\n"
+                "MATHEMATICAL COMPUTATION REQUIREMENT:\n"
+                "- Step 1: Compute realistic road distances for each milestone segment.\n"
+                "- Step 2: Sum the segment distances to get the exact value for 'estimated_distance_km'.\n"
+                "- Step 3: Compute carbon emissions for this specific vehicle profile (baseline SUV emissions are high; a Range Rover Velar averages 0.18-0.24 kg CO2 per km).\n"
+                "- Step 4: Calculate 'total_carbon_saved_kg' by subtracting your optimized multi-modal route emissions from a worst-case baseline trip (e.g., a standard un-optimized high-congestion ICE route which would emit far more due to severe idling)."
+            )
+
+            user_context = (
+                f"Calculate a route from origin: '{origin}' to destination: '{destination}' "
+                f"using vehicle profile: {vehicle_make} ({vehicle_type}).\n\n"
+                f"Provide your final calculation strictly in JSON format. Do not use placeholders from the schema below. "
+                f"Replace every single numeric value with your live computed calculation results.\n\n"
+                f"REQUIRED JSON FORMAT SCHEMA STRUCTURE:\n"
                 f"{{\n"
-                f"  \"estimated_distance_km\": 12.5,\n"
+                f"  \"estimated_distance_km\": <calculated_float_sum_of_milestones>,\n"
+                f"  \"total_carbon_saved_kg\": <calculated_float_savings>,\n"
                 f"  \"milestones\": [\n"
-                f"    {{\"distance_mark\": \"0km\", \"mode\": \"Drive\", \"text\": \"Start driving\"}}\n"
+                f"    {{\n"
+                f"      \"mode\": \"string\",\n"
+                f"      \"instruction\": \"string\",\n"
+                f"      \"distance_km\": <calculated_segment_float>,\n"
+                f"      \"emissions_kg\": <calculated_segment_float>\n"
+                f"    }}\n"
                 f"  ],\n"
-                f"  \"narrative\": \"Summary paragraph.\"\n"
+                f"  \"narrative\": \"string\"\n"
                 f"}}\n"
-                f"Return ONLY the JSON block. No conversational introduction or markdown wrappers."
+                f"Return ONLY the valid raw JSON object. Do not wrap the output in markdown backticks or triple-tick blocks."
             )
 
             try:
                 url = "https://api.groq.com/openai/v1/chat/completions"
-                headers = {"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"}
+                headers = {
+                    "Authorization": f"Bearer {groq_key}", 
+                    "Content-Type": "application/json"
+                }
+                
                 payload = {
-                    "model": "llama3-8b-8192",
-                    "messages": [{"role": "user", "content": prompt}],
-                    "temperature": 0.2
+                    "model": "llama-3.1-8b-instant", 
+                    "messages": [
+                        {"role": "system", "content": system_guidance},
+                        {"role": "user", "content": user_context}
+                    ],
+                    "temperature": 0.3
                 }
                 
                 groq_response = requests.post(url, json=payload, headers=headers, timeout=10)
-                ai_text = groq_response.json()['choices'][0]['message']['content']
+                response_json = groq_response.json()
+                
+                if "error" in response_json:
+                    return Response({
+                        "error": "Groq API rejected payload configuration.",
+                        "details": response_json["error"]
+                    }, status=status.HTTP_400_BAD_REQUEST)
+
+                ai_text = response_json['choices'][0]['message']['content'].strip()
+                
+                if ai_text.startswith("```"):
+                    ai_text = ai_text.strip("```").replace("json", "", 1).strip()
+                
                 clean_json_data = json.loads(ai_text)
 
-                profile = request.user.user_profile
-                profile.ai_queries_count += 1
+                # Update the database quota tracking row
+                profile = request.user.userprofile
+                profile.ai_query_count += 1
                 profile.save()
+
+                # Extract values safely for log preservation
+                total_distance = float(clean_json_data.get("estimated_distance_km", 0.0))
+                
+                # Dynamic Carbon Calculation logic
+                # Tracking route reductions as negative values matching your data flow rules
+                net_emissions = float(clean_json_data.get("total_carbon_saved_kg", 0.0)) * -1.0 
+
+                # Commit to unified database layout
+                ActivityLog.objects.create(
+                    user=request.user,
+                    category="transportation",
+                    activity_type=f"Route: {origin} to {destination}",
+                    input_value=total_distance,
+                    unit="km",
+                    co2e_kg=net_emissions
+                )
+
                 return Response(clean_json_data, status=status.HTTP_200_OK)
 
+            except json.JSONDecodeError:
+                return Response({"error": "LLM returned invalid formatting that could not be parsed as clean JSON."}, status=status.HTTP_502_BAD_GATEWAY)
             except Exception as e:
                 return Response({"error": f"AI Engine Handshake Failed: {str(e)}"}, status=status.HTTP_502_BAD_GATEWAY)
-
 
 class ComplaintFunnelView(APIView):
     permission_classes = [IsAuthenticated]
@@ -213,35 +229,32 @@ class ComplaintFunnelView(APIView):
             )
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-
 class MpesaCheckoutView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
         user = request.user
-        amount = request.data.get('amount', 30)
         payload_phone = request.data.get('phone_number')
+
+        # Enforce your precise payment business logic rule
+        amount = 5.00 
 
         try:
             profile, created = UserProfile.objects.get_or_create(user=user)
             saved_phone = profile.phone_number
         except Exception as e:
-            return Response({"error": f"UserProfile retrieval/creation failed: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({"error": f"UserProfile retrieval failed: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         final_phone = payload_phone or saved_phone
 
         if not final_phone:
-            return Response(
-                {
-                    "error": "M-Pesa payment requires a mobile phone asset.",
-                    "code": "PHONE_REQUIRED",
-                    "detail": "No phone number linked to your profile."
-                }, 
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({
+                "error": "M-Pesa payment requires a mobile phone asset.",
+                "code": "PHONE_REQUIRED",
+                "detail": "No phone number linked to your profile."
+            }, status=status.HTTP_400_BAD_REQUEST)
 
         final_phone = str(final_phone).strip()
-
         if not final_phone.startswith('254') or len(final_phone) != 12:
             return Response(
                 {"error": "Malformed payment phone format. Value must strictly match 2547XXXXXXXX format."},
@@ -253,15 +266,9 @@ class MpesaCheckoutView(APIView):
             profile.save()
 
         try:
-            try:
-                token, password, timestamp = generate_mpesa_credentials()
-            except Exception as auth_error:
-                return Response({
-                    "error": "The generate_mpesa_credentials() helper crashed.",
-                    "details": str(auth_error)
-                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-                        
+            token, password, timestamp = generate_mpesa_credentials()
             callback_url = get_mpesa_callback_url(request)
+            
             headers = {
                 "Authorization": f"Bearer {token}",
                 "Content-Type": "application/json",
@@ -291,34 +298,41 @@ class MpesaCheckoutView(APIView):
 
             if response.status_code != 200:
                 return Response({
-                    "error": "Safaricom gateway returned a non-JSON status error.",
-                    "status_code": response.status_code,
-                    "raw_response": response.text[:200]
+                    "error": "Safaricom gateway returned an unexpected status error.",
+                    "status_code": response.status_code
                 }, status=status.HTTP_400_BAD_REQUEST)
             
             response_data = response.json()
             if response_data.get("ResponseCode") == "0":
+                checkout_id = response_data.get("CheckoutRequestID")
+                
+                # Bind transaction token token metadata to profile row for webhook tracking matches
+                profile.mpesa_checkout_request_id = checkout_id
+                profile.save()
+
                 return Response({
                     "message": "STK Push initiated. Verify on handset.",
-                    "MerchantRequestID": response_data.get("MerchantRequestID"),
-                    "CheckoutRequestID": response_data.get("CheckoutRequestID")
+                    "CheckoutRequestID": checkout_id,
+                    "amount_billed": amount
                 }, status=status.HTTP_200_OK)
             else:
                 return Response(
-                    {"error": response_data.get("ResponseDescription", "Gateway execution rejected by upstream server.")}, 
+                    {"error": response_data.get("ResponseDescription", "Gateway rejected request.")}, 
                     status=status.HTTP_400_BAD_REQUEST
                 )
 
         except Exception as e:
             return Response({"error": f"Gateway connection failure: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+
 class MpesaCarbonmarkCallbackView(APIView):
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [AllowAny]
 
     def post(self, request):
-        stk_callback = request.data.get("Body", {}).get("stkCallback", {})
+        data = request.data
+        stk_callback = data.get("Body", {}).get("stkCallback", {})
         result_code = stk_callback.get("ResultCode")
-        merchant_request_id = stk_callback.get("MerchantRequestID", "UNKNOWN")
+        checkout_request_id = stk_callback.get("CheckoutRequestID")
         
         # Safaricom expects a clean acknowledgment shape, even if we drop the execution internally
         safaricom_success_ack = {
@@ -326,59 +340,82 @@ class MpesaCarbonmarkCallbackView(APIView):
             "ResponseDescription": "success"
         }
 
-        if result_code == 0:
-            user_id = request.GET.get("user_id")
-            offset_kg = request.GET.get("offset_kg", "10")
-            
-            try:
-                # 1. Look up User first
-                user = User.objects.get(id=user_id)
-                profile = user.userprofile
+        # If the user cancelled or the payment failed, acknowledge safely and exit
+        if result_code != 0:
+            return Response(safaricom_success_ack, status=status.HTTP_200_OK)
 
-                #Logic to check for whether a premium is due
-                is_premium_upgrade = request.GET.get("upgrade") == "true"
-                if is_premium_upgrade:
-                    # Activate Premium status permanently inside database ledger rows
-                    profile.is_premium = True
-                    profile.save()
+        # --- PAYMENT IS SUCCESSFUL: PROCESS DOWNSTREAM SYSTEM SIDE EFFECTS ---
+        user_id = request.GET.get("user_id")
+        offset_kg = request.GET.get("offset_kg", "10")
+        is_premium_upgrade = request.GET.get("upgrade") == "true"
+
+        try:
+            profile = None
+            user = None
+
+            # 1. PROFILE RESOLUTION SEQUENCE
+            if user_id:
+                # Query route path A: Fall back on classic URL routing parameters
+                try:
+                    user = User.objects.get(id=user_id)
+                    profile = user.userprofile
+                except User.DoesNotExist:
                     return Response(safaricom_success_ack, status=status.HTTP_200_OK)
-                
-                # 2. Guard constraint validation check
-                if not profile.phone_number:
-                    # Log internally if needed, but tell Safaricom we received it to prevent repeat retries
+            elif checkout_request_id:
+                # Query route path B: Fall back on checking cached STK tokens across database indexes
+                try:
+                    profile = UserProfile.objects.get(mpesa_checkout_request_id=checkout_request_id)
+                    user = profile.user
+                except UserProfile.DoesNotExist:
                     return Response(safaricom_success_ack, status=status.HTTP_200_OK)
-                
-                # 3. Hit Carbonmark Gateway APIs
-                carbonmark_url = "https://api.carbonmark.com/v1/retirements"
-                headers = {
-                    "Authorization": f"Bearer {os.environ.get('CARBONMARK_API_KEY')}",
-                    "Content-Type": "application/json"
-                }
-                
-                payload = {
-                    "quantity": float(offset_kg) / 1000.0,
-                    "project_id": "VCS-981",
-                    "beneficiary_address": user.email,
-                    "retirement_reason": f"Climatiqa Target Clearance for user {user.username}"
-                }
-                
-                response = requests.post(carbonmark_url, json=payload, headers=headers, timeout=10)
-                
-                if response.status_code in [200, 201]:
-                    profile.current_month_accumulated_co2_kg = max(0, profile.current_month_accumulated_co2_kg - float(offset_kg))
-                    profile.save()
-                    return Response(safaricom_success_ack, status=status.HTTP_200_OK)
-                
-            # Place specific exceptions BEFORE general Exception
-            except User.DoesNotExist:
+
+            # Security Guard: If no valid profile could be resolved, acknowledge and drop execution
+            if not profile:
                 return Response(safaricom_success_ack, status=status.HTTP_200_OK)
-                
-            except Exception as e:
-                # Real programmatic crashes yield an explicit internal server 500 error sequence block
-                return Response({"error": f"Internal mapping error: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-                
-        return Response(safaricom_success_ack, status=status.HTTP_200_OK)
 
+            # 2. EVALUATE LOGIC GATEWAY: PREMIUM UPGRADE VS. CARBON OFFSETS
+            if is_premium_upgrade or (profile.mpesa_checkout_request_id == checkout_request_id and checkout_request_id is not None):
+                
+                # Execute the 30-day timeline tracking state method safely
+                profile.activate_premium_one_month()
+                
+                # Flush the transaction token tracker to cleanly free up model rows
+                profile.mpesa_checkout_request_id = None
+                profile.save()
+                
+                return Response(safaricom_success_ack, status=status.HTTP_200_OK)
+
+            # 3. CLASSIC CARBONMARK API GATEWAY EXECUTION PATH
+            if not profile.phone_number:
+                return Response(safaricom_success_ack, status=status.HTTP_200_OK)
+            
+            carbonmark_url = "https://api.carbonmark.com/v1/retirements"
+            headers = {
+                "Authorization": f"Bearer {os.environ.get('CARBONMARK_API_KEY')}",
+                "Content-Type": "application/json"
+            }
+            
+            payload = {
+                "quantity": float(offset_kg) / 1000.0,
+                "project_id": "VCS-981",
+                "beneficiary_address": user.email,
+                "retirement_reason": f"Climatiqa Target Clearance for user {user.username}"
+            }
+            
+            response = requests.post(carbonmark_url, json=payload, headers=headers, timeout=10)
+            
+            if response.status_code in [200, 201]:
+                profile.current_month_accumulated_co2_kg = max(0.0, profile.current_month_accumulated_co2_kg - float(offset_kg))
+                profile.save()
+                return Response(safaricom_success_ack, status=status.HTTP_200_OK)
+            
+            # Even if Carbonmark returns a bad status, tell Safaricom 200 OK so it stops hammering your endpoint
+            return Response(safaricom_success_ack, status=status.HTTP_200_OK)
+                
+        except Exception as e:
+            # Fatal structural crashes return an explicit 500 error log block
+            return Response({"error": f"Internal mapping error: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
 class ProductScannerIngestionView(APIView):
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
@@ -488,18 +525,12 @@ class ProductScannerIngestionView(APIView):
         }, status=status.HTTP_200_OK)
 
 class VoiceLogView(APIView):
-    """
-    Ingests raw audio asset attachments (.mp3, .wav, .m4a), 
-    transcribes them remotely using Groq's Whisper API engine, 
-    and classifies carbon metrics against matching text patterns.
-    """
     permission_classes = [IsAuthenticated]
-    parser_classes = [MultiPartParser, FormParser, JSONParser]  # Allows file upload streaming
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def post(self, request):
-        # 1. Enforce validation check on incoming files
         if 'file' not in request.FILES:
-            return Response({"error": "No voice recording file found under the 'file' parameter attribute key."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"error": "No voice recording file found under the 'file' parameter key."}, status=status.HTTP_400_BAD_REQUEST)
         
         audio_file = request.FILES['file']
         groq_key = os.getenv("GROQ_API_KEY")
@@ -507,46 +538,125 @@ class VoiceLogView(APIView):
         if not groq_key:
             return Response({"error": "AI Audio Transcription Engine Offline."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
-        # 2. Handshake directly with Groq's remote Whisper translation model
         try:
             client = Groq(api_key=groq_key)
-            
-            # Pass file tuple mapping payload straight down the pipeline network
             transcription = client.audio.transcriptions.create(
                 file=(audio_file.name, audio_file.read(), audio_file.content_type),
                 model="whisper-large-v3",
                 response_format="json",
                 temperature=0.0
             )
-            
-            # Extracted clear raw string sentence configuration block
             raw_text = transcription.text.lower()
 
         except Exception as api_error:
             return Response({"error": f"Speech-to-Text conversion failed: {str(api_error)}"}, status=status.HTTP_502_BAD_GATEWAY)
 
-        # 3. Process pattern match operations locally
+        # Map patterns dynamically to match your ActivityLog schema's validation choices
         if "run" in raw_text or "jog" in raw_text:
-            activity_type = "Running"
-            impact_score = 0.0 
-        elif "bulb" in raw_text or "led" in raw_text:
-            activity_type = "Energy Efficiency Upgrade"
-            impact_score = -10.5
+            category_group = "transportation"
+            activity_label = "Running"
+            metric_val = 5.0   # Assumed baseline km
+            metric_unit = "km"
+            computed_co2 = 0.0 
+        elif "bulb" in raw_text or "led" in raw_text or "power" in raw_text:
+            category_group = "home_energy"
+            activity_label = "LED Upgrade Efficiency"
+            metric_val = 1.0   # Per unit installation base
+            metric_unit = "kWh"
+            computed_co2 = -10.5
         else:
-            activity_type = "Generic Activity"
-            impact_score = 0.0
+            category_group = "diet"
+            activity_label = "Generic Low-Emission Meal"
+            metric_val = 1.0
+            metric_unit = "servings"
+            computed_co2 = -0.5
 
-        # 4. Document update tracking rows securely
+        # Saved database insertions using your exact model layout attributes
         log = ActivityLog.objects.create(
             user=request.user,
-            description=f"Voice Logged: {raw_text}",
-            category=activity_type,
-            score=impact_score
+            category=category_group,
+            activity_type=activity_label,
+            input_value=metric_val,
+            unit=metric_unit,
+            co2e_kg=computed_co2
         )
 
         return Response({
-            "message": "Voice entry transcribed and synthesized successfully!",
-            "matched_category": activity_type,
+            "message": "Voice entry transcribed and committed to timeline log successfully!",
             "raw_transcript": raw_text,
-            "impact_score": impact_score
+            "activity_logged": {
+                "category": log.category,
+                "type": log.activity_type,
+                "impact_saved": log.co2e_kg
+            }
         }, status=status.HTTP_201_CREATED)
+    
+class UserProfileDashboardView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+        profile, created = UserProfile.objects.get_or_create(user=user)
+
+        # Gather single unified log timeline sequence
+        user_activities = ActivityLog.objects.filter(user=user).order_by('-id')
+        
+        cumulative_emitted_kg = 0.0
+        cumulative_saved_kg = 0.0
+
+        for log in user_activities:
+            impact = float(log.co2e_kg or 0.0)
+            if impact > 0:
+                cumulative_emitted_kg += impact
+            else:
+                # Turn negative reduction entries into a positive tally tracking value
+                cumulative_saved_kg += abs(impact)
+
+        # Incorporate paid platform offsets (e.g. Mpesa -> Carbonmark purchases)
+        paid_offset_kg = float(profile.cumulative_offset_kg or 0.0)
+        
+        # Combined aggregate total of historical actions + paid balance actions
+        total_lifetime_offset_kg = cumulative_saved_kg + paid_offset_kg
+
+        # Calculate remaining balance debt metrics safely
+        net_outstanding_deficit_kg = max(0.0, cumulative_emitted_kg - total_lifetime_offset_kg)
+        carbonmark_recommended_units = round(net_outstanding_deficit_kg / 1000.0, 4)
+
+        history_list = []
+        for log in user_activities:
+            log_date = log.created_at.strftime("%B %d, %Y") if hasattr(log, 'created_at') and log.created_at else "Recent"
+            log_time = log.created_at.strftime("%I:%M %p") if hasattr(log, 'created_at') and log.created_at else "Just Now"
+
+            history_list.append({
+                "log_id": log.id,
+                "date": log_date,
+                "time": log_time,
+                "timestamp_raw": log.created_at.isoformat() if hasattr(log, 'created_at') and log.created_at else "",
+                "category": log.category,
+                "activity_description": log.activity_type,
+                "metrics": {
+                    "input_value": float(log.input_value or 0.0),
+                    "unit": log.unit or "",
+                    "co2e_impact_kg": float(log.co2e_kg or 0.0)
+                }
+            })
+
+        payload = {
+            "profile": {
+                "username": f"{user.first_name} {user.last_name}".strip() or user.username,
+                "email": user.email,
+                "account_tier": profile.account_tier,
+                "ai_query_count": profile.ai_query_count,
+            },
+            "lifetime_footprint_balance": {
+                "cumulative_emitted_kg": round(cumulative_emitted_kg, 2),
+                "cumulative_saved_kg": round(cumulative_saved_kg, 2), # Route/Item choices behavior savings
+                "cumulative_offset_kg": round(paid_offset_kg, 2),      # Direct paid transactions
+                "total_lifetime_offset_kg": round(total_lifetime_offset_kg, 2), # Absolute complete protection number
+                "net_outstanding_deficit_kg": round(net_outstanding_deficit_kg, 2),
+                "carbonmark_recommended_offset_units": carbonmark_recommended_units
+            },
+            "historical_activity_logs": history_list
+        }
+
+        return Response(payload, status=status.HTTP_200_OK)
