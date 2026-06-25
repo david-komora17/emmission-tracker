@@ -17,7 +17,7 @@ function LoadingSpinner() {
                 </div>
             </div>
             <p className="text-white/60 text-xs font-semibold uppercase tracking-widest animate-pulse">
-                Analyzing Footprint...
+                Retrieving Data...
             </p>
         </div>
     );

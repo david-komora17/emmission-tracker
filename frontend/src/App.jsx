@@ -1,31 +1,24 @@
 // src/App.jsx
-import React, { useState, useRef, useEffect } from 'react';
-import { Leaf, Navigation2, ShoppingBag, Mic, Radio, ShieldAlert, LogOut } from 'lucide-react';
-import SearchBar from './components/SearchBar';
+import React, { useState, useEffect } from 'react';
+import { Leaf, LogOut, User, Shield, Menu, X } from 'lucide-react';
 import MapWindow from './components/MapWindow';
 import LoadingSpinner from './components/LoadingSpinner';
-import MilestonesPanel from './components/MilestonesPanel';
-import ProductLogPanel from './components/ProductLogPanel';
+import ProductScanner from './components/ProductScanner';
 import RegisterComponent from './components/Register';
-import AdminDashboard from './components/AdminDash';
 import QuotaPaywallCard from './components/Paywall'; 
 import UserProfile from './components/UserProfile';
 import Footer from './components/Footer';                    
+import AdminDashboard from './components/AdminDash';
 import { useTransitOptimizer } from './hooks/useTransitOptimizer';
 
 function App() {
     const [isAuthenticated, setIsAuthenticated] = useState(!!localStorage.getItem('token'));
-    const [activeTab, setActiveTab] = useState('transit');
-    const [isRecording, setIsRecording] = useState(false);
-    const [userRole, setUserRole] = useState(localStorage.getItem('user_role') || 'USER');
     const [userFirstName, setUserFirstName] = useState('');
     const [showProfileCard, setShowProfileCard] = useState(false);
-    
     const [showPaywall, setShowPaywall] = useState(false);
     const [paywallMetrics, setPaywallMetrics] = useState(null);
-    
-    const mediaRecorderRef = useRef(null);
-    const audioChunksRef = useRef([]);
+    const [isAdmin, setIsAdmin] = useState(false);
+    const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
     const { optimizeRoute, processVoiceLog, routeData, loading, error, setError } = useTransitOptimizer();
 
@@ -34,231 +27,185 @@ function App() {
             const rawName = localStorage.getItem('username') || 'Climatiqa User';
             const firstNameToken = rawName.trim().split(' ')[0];
             setUserFirstName(firstNameToken);
-            setUserRole(localStorage.getItem('user_role') || 'USER');
+            
+            const role = localStorage.getItem('user_role');
+            setIsAdmin(role === 'ADMIN');
         }
     }, [isAuthenticated]);
 
     useEffect(() => {
-        if (error && typeof error === 'object' && (error.code === 'TRIAL_EXPIRED' || error.status === 429)) {
+        if (error && typeof error === 'object' && error.status === 429 && !isAdmin) {
             setPaywallMetrics(error);
             setShowPaywall(true);
             setError(null); 
-        } else if (error && typeof error === 'string' && error.includes('429')) {
-            setPaywallMetrics({ error: "Your application query instance limits have expired.", current_usage: 5, amount_payable: 5.00 });
-            setShowPaywall(true);
-            setError(null);
         }
-    }, [error, setError]);
+    }, [error, setError, isAdmin]);
 
     const handleLogOut = () => {
         localStorage.clear();
         setIsAuthenticated(false);
-        setActiveTab('transit');
-    };
-
-    // Modified to capture full metadata attributes from the updated SearchBar
-    const handleRouteRequest = ({ origin, destination, vehicleType, vehicleMake }) => {
-        optimizeRoute({
-            origin,
-            destination,
-            vehicleType: vehicleType || 'SUV',
-            vehicleMake: vehicleMake || 'Standard Fleet Profile'
-        });
-    };
-
-    const startRecordingVoice = async () => {
-        audioChunksRef.current = [];
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            const options = MediaRecorder.isTypeSupported('audio/webm') ? { mimeType: 'audio/webm' } : { mimeType: 'audio/ogg' };
-            mediaRecorderRef.current = new MediaRecorder(stream, options);
-            
-            mediaRecorderRef.current.ondataavailable = (event) => {
-                if (event.data.size > 0) audioChunksRef.current.push(event.data);
-            };
-
-            mediaRecorderRef.current.onstop = async () => {
-                const recordedType = mediaRecorderRef.current.mimeType;
-                const audioBlob = new Blob(audioChunksRef.current, { type: recordedType });
-                stream.getTracks().forEach(track => track.stop());
-                
-                const result = await processVoiceLog(audioBlob, 'GASOLINE');
-                if (result) {
-                    if (result.type === 'ROUTE_UPDATED') {
-                        setActiveTab('transit');
-                    } else if (result.type === 'LOG_COMMITTED') {
-                        alert(`Logged: "${result.transcript}" (${result.details.co2e_kg} kg CO2e)`);
-                    }
-                }
-            };
-
-            mediaRecorderRef.current.start();
-            setIsRecording(true);
-        } catch (err) {
-            alert("Microphone permission denied.");
-            console.error(err);
-        }
-    };
-    
-    const stopRecordingVoice = () => {
-        if (mediaRecorderRef.current && isRecording) {
-            mediaRecorderRef.current.stop();
-            setIsRecording(false);
-        }
+        setIsAdmin(false);
     };
 
     if (!isAuthenticated) {
         return (
-            <div className="min-h-screen w-full bg-gradient-to-br from-slate-900 via-emerald-950 to-zinc-950 text-white font-sans antialiased flex items-center justify-center py-16 px-4">
+            <div className="min-h-screen w-full bg-gradient-to-br from-[#0a0f0e] via-[#0d1a15] to-[#0a0f0e] text-white flex items-center justify-center p-4">
+                <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-emerald-900/20 via-transparent to-transparent pointer-events-none" />
                 <RegisterComponent onAuthSuccess={() => setIsAuthenticated(true)} />
             </div>
         );
     }
 
     return (
-        <div className="min-h-screen w-full bg-gradient-to-br from-slate-900 via-emerald-950 to-zinc-950 text-white font-sans antialiased selection:bg-green-500/30 py-8 px-4 sm:px-6 lg:px-8 flex flex-col justify-between">
-            
-            {showPaywall && (
-                <QuotaPaywallCard 
-                    errorDetails={paywallMetrics} 
-                    onClose={() => setShowPaywall(false)}
-                    onPaymentSuccess={() => console.log('M-Pesa Webhook polling synchronized.')}
-                />
-            )}
-
-            {showProfileCard && (
-                <UserProfile onClose={() => setShowProfileCard(false)} />
-            )}
-
-            <div className="max-w-7xl mx-auto space-y-6 w-full mb-auto">
-                
-                {/* Navigation Header Panel */}
-                <header className="flex flex-col md:flex-row items-center justify-between gap-4 border-b border-white/5 pb-4">
-                    <div className="flex items-center space-x-3">
-                        <div className="p-2.5 bg-gradient-to-br from-green-400 to-emerald-600 rounded-2xl shadow-lg shadow-green-500/20">
-                            <Leaf className="w-6 h-6 text-white" />
-                        </div>
-                        <div>
-                            <h1 className="text-xl font-black tracking-tight text-white">CLIMATIQA</h1>
-                        </div>
-                    </div>
-
-                    {/* Tabs Engine */}
-                    <div className="flex items-center space-x-2 bg-white/5 p-1.5 rounded-2xl border border-white/10 shadow-inner">
-                        <button 
-                            onClick={() => setActiveTab('transit')}
-                            className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all duration-300 ${
-                                activeTab === 'transit' ? 'bg-emerald-500 text-white shadow-md' : 'text-white/60 hover:text-white'
-                            }`}
-                        >
-                            <Navigation2 className="w-3.5 h-3.5" />
-                            <span>Transit Paths</span>
-                        </button>
-                        <button 
-                            onClick={() => setActiveTab('product')}
-                            className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all duration-300 ${
-                                activeTab === 'product' ? 'bg-emerald-500 text-white shadow-md' : 'text-white/60 hover:text-white'
-                            }`}
-                        >
-                            <ShoppingBag className="w-3.5 h-3.5" />
-                            <span>Product Log</span>
-                        </button>
-
-                        {userRole === 'ADMIN' && (
-                            <button 
-                                onClick={() => setActiveTab('admin')}
-                                className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all duration-300 ${
-                                    activeTab === 'admin' ? 'bg-red-500 text-white shadow-md' : 'text-red-400/70 hover:text-red-400'
-                                }`}
-                            >
-                                <ShieldAlert className="w-3.5 h-3.5" />
-                                <span>Admin Panel</span>
-                            </button>
-                        )}
-                    </div>
-                    
-                    {/* Identity Widget Deck */}
-                    <div 
-                        onClick={() => setShowProfileCard(true)}
-                        className="flex items-center space-x-2 bg-white/5 pl-3 pr-1.5 py-1 rounded-full border border-white/10 cursor-pointer hover:bg-white/10 transition-all duration-200 group active:scale-95"
-                    >
-                        <span className="text-xs font-bold tracking-wide text-white/80 group-hover:text-white transition-colors">
-                            {userFirstName}
-                        </span>
-                        <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-blue-500 to-emerald-500 flex items-center justify-center text-xs font-black text-white uppercase shadow-md select-none">
-                            {userFirstName.charAt(0) || 'C'}
-                        </div>
-                        <button 
-                            onClick={(e) => { e.stopPropagation(); handleLogOut(); }}
-                            className="p-1.5 text-white/40 hover:text-red-400 transition-colors rounded-full relative z-10"
-                        >
-                            <LogOut className="w-3.5 h-3.5" />
-                        </button>
-                    </div>
-                </header>
-
-                {/* Conditional Segment Switch Router */}
-                {activeTab === 'admin' ? (
-                    <AdminDashboard />
-                ) : (
-                    <>
-                        {/* Interactive Voice Console Layer */}
-                        <div className="w-full max-w-4xl mx-auto flex items-center justify-between p-3.5 bg-zinc-900/40 backdrop-blur-md border border-white/5 rounded-2xl shadow-md">
-                            <div className="flex items-center space-x-3">
-                                <div className={`p-2 rounded-xl transition-colors ${isRecording ? 'bg-red-500/20 text-red-400 animate-pulse' : 'bg-white/5 text-white/40'}`}>
-                                    {isRecording ? <Radio className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
-                                </div>
-                                <span className="text-xs font-semibold tracking-wide text-white/70">
-                                    {isRecording ? "Listening to voice input..." : "Provide inputs via voice."}
-                                </span>
-                            </div>
-                            <button 
-                                onClick={isRecording ? stopRecordingVoice : startRecordingVoice}
-                                className={`px-5 py-2 text-xs font-bold rounded-xl transition-all duration-300 flex items-center space-x-2 border ${
-                                    isRecording 
-                                        ? 'bg-red-500 hover:bg-red-600 text-white border-red-400/30' 
-                                        : 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border-emerald-500/30'
-                                }`}
-                            >
-                                <span>{isRecording ? "Stop" : "Live"}</span>
-                            </button>
-                        </div>
-
-                        {/* Search Input Area Stack Section */}
-                        <section className="w-full">
-                            {activeTab === 'transit' ? (
-                                <SearchBar onOptimize={handleRouteRequest} loading={loading} />
-                            ) : (
-                                <ProductLogPanel />
-                            )}
-                        </section>
-
-                        {error && typeof error === 'string' && (
-                            <div className="max-w-4xl mx-auto bg-red-500/10 border border-red-500/20 p-4 rounded-2xl text-red-300 text-sm font-medium text-center shadow-lg">
-                                ⚠️ {error}
-                            </div>
-                        )}
-
-                        {/* Combined Spatial Map Frame Layout Workspace */}
-                        <main className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
-                            <div className="lg:col-span-2 w-full">
-                                {loading && !routeData ? (
-                                    <div className="bg-slate-900/40 border border-white/5 rounded-3xl h-[500px] flex items-center justify-center backdrop-blur-md">
-                                        <LoadingSpinner />
-                                    </div>
-                                ) : (
-                                    <MapWindow routeData={routeData} />
-                                )}
-                            </div>
-                            <div className="lg:col-span-1 w-full h-full">
-                                <MilestonesPanel routeData={routeData} />
-                            </div>
-                        </main>
-                    </>
-                )}
+        <div className="min-h-screen w-full bg-[#0a0f0e] text-white font-sans antialiased">
+            {/* Ambient Glow Effects */}
+            <div className="fixed inset-0 pointer-events-none overflow-hidden">
+                <div className="absolute -top-1/2 -right-1/2 w-[800px] h-[800px] bg-emerald-500/5 rounded-full blur-3xl" />
+                <div className="absolute -bottom-1/2 -left-1/2 w-[600px] h-[600px] bg-green-500/5 rounded-full blur-3xl" />
             </div>
 
-            <div className="max-w-7xl mx-auto w-full pt-8">
+            {/* Paywall Overlay */}
+            {showPaywall && !isAdmin && (
+                <QuotaPaywallCard 
+                    errorDetails={paywallMetrics} 
+                    onClose={() => setShowPaywall(false)} 
+                />
+            )}
+            
+            {/* Profile Modal */}
+            {showProfileCard && <UserProfile onClose={() => setShowProfileCard(false)} />}
+
+            {/* Main Content Container */}
+            <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex flex-col min-h-screen">
+                
+                {/* ===== HEADER ===== */}
+                <header className="flex items-center justify-between gap-4 py-4 border-b border-emerald-500/10">
+                    {/* Brand */}
+                    <div className="flex items-center space-x-3">
+                        <div className="relative">
+                            <div className="absolute inset-0 bg-emerald-500/20 rounded-2xl blur-xl" />
+                            <div className="relative p-2.5 bg-gradient-to-br from-emerald-400 to-green-600 rounded-2xl shadow-lg shadow-emerald-500/20">
+                                <Leaf className="w-6 h-6 text-white" />
+                            </div>
+                        </div>
+                        <div>
+                            <h1 className="text-xl font-black tracking-tight">
+                                <span className="bg-gradient-to-r from-emerald-400 to-green-300 bg-clip-text text-transparent">
+                                    CLIMATIQA
+                                </span>
+                            </h1>
+                            <p className="text-[9px] font-bold text-emerald-400/40 tracking-[0.2em] uppercase">
+                                Carbon Intelligence
+                            </p>
+                        </div>
+                        {isAdmin && (
+                            <span className="ml-2 text-[8px] font-black text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-full uppercase tracking-widest flex items-center gap-1">
+                                <Shield className="w-3 h-3" />
+                                Admin
+                            </span>
+                        )}
+                    </div>
+
+                    {/* Desktop Right Section */}
+                    <div className="hidden md:flex items-center gap-4">
+                        {/* Scanner - Elegant compact version */}
+                        <div className="w-64">
+                            <ProductScanner />
+                        </div>
+
+                        {/* User Widget */}
+                        <div className="flex items-center gap-2">
+                            <button
+                                onClick={() => setShowProfileCard(true)}
+                                className="flex items-center gap-3 px-3 py-1.5 bg-white/5 hover:bg-emerald-500/10 border border-emerald-500/10 hover:border-emerald-500/30 rounded-full transition-all duration-300 group"
+                            >
+                                <span className="text-xs font-semibold text-emerald-400/80 group-hover:text-emerald-300 transition-colors">
+                                    {userFirstName}
+                                </span>
+                                <div className="relative">
+                                    <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-emerald-500 to-green-400 flex items-center justify-center text-xs font-black text-white shadow-lg shadow-emerald-500/20">
+                                        {userFirstName.charAt(0) || 'C'}
+                                    </div>
+                                    <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-emerald-400 rounded-full border-2 border-[#0a0f0e] flex items-center justify-center">
+                                        <div className="w-1.5 h-1.5 bg-emerald-600 rounded-full animate-pulse" />
+                                    </div>
+                                </div>
+                            </button>
+                            
+                            <button
+                                onClick={handleLogOut}
+                                className="p-2 text-emerald-400/30 hover:text-red-400 transition-colors rounded-lg hover:bg-red-500/10 group"
+                                title="Sign Out"
+                            >
+                                <LogOut className="w-4 h-4 group-hover:scale-110 transition-transform" />
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Mobile Menu Toggle */}
+                    <button
+                        onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+                        className="md:hidden p-2 text-emerald-400/60 hover:text-emerald-400 transition-colors"
+                    >
+                        {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+                    </button>
+                </header>
+
+                {/* Mobile Menu */}
+                {mobileMenuOpen && (
+                    <div className="md:hidden py-4 space-y-4 border-b border-emerald-500/10">
+                        <div className="w-full">
+                            <ProductScanner />
+                        </div>
+                        <div className="flex items-center justify-between pt-2 border-t border-emerald-500/10">
+                            <button
+                                onClick={() => {
+                                    setShowProfileCard(true);
+                                    setMobileMenuOpen(false);
+                                }}
+                                className="flex items-center gap-3 px-3 py-2 bg-white/5 rounded-full border border-emerald-500/10"
+                            >
+                                <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-emerald-500 to-green-400 flex items-center justify-center text-xs font-black text-white">
+                                    {userFirstName.charAt(0) || 'C'}
+                                </div>
+                                <span className="text-sm font-semibold text-white/80">{userFirstName}</span>
+                            </button>
+                            <button
+                                onClick={handleLogOut}
+                                className="flex items-center gap-2 px-4 py-2 text-red-400/60 hover:text-red-400 hover:bg-red-500/10 rounded-full transition-colors text-sm font-medium"
+                            >
+                                <LogOut className="w-4 h-4" />
+                                Sign Out
+                            </button>
+                        </div>
+                    </div>
+                )}
+
+                {/* ===== MAIN CONTENT ===== */}
+                <main className="flex-1 py-6">
+                    {isAdmin ? (
+                        // Admin View
+                        <div className="bg-white/[0.02] backdrop-blur-sm rounded-3xl border border-emerald-500/10 p-6">
+                            <AdminDashboard />
+                        </div>
+                    ) : (
+                        // User View - MapWindow handles everything including search
+                        <div className="bg-white/[0.02] backdrop-blur-sm rounded-3xl border border-emerald-500/10 overflow-hidden">
+                            {loading && !routeData ? (
+                                <div className="h-[600px] flex flex-col items-center justify-center">
+                                    <LoadingSpinner />
+                                    <p className="mt-4 text-[10px] font-bold text-emerald-400/50 tracking-[0.2em] uppercase animate-pulse">
+                                        Calculating optimal route...
+                                    </p>
+                                </div>
+                            ) : (
+                                <MapWindow routeData={routeData} />
+                            )}
+                        </div>
+                    )}
+                </main>
+
+                {/* ===== FOOTER ===== */}
                 <Footer />
             </div>
         </div>
