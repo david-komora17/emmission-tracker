@@ -1,132 +1,98 @@
-// src/hooks/useTransitOptimizer.js
-import { useState } from 'react';
-
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000'
-const LOCAL_URL = import.meta.env.VITE_API_LOCAL_URL || 'http://127.0.0.1:8000'
+import { useState, useCallback } from 'react';
 
 export function useTransitOptimizer() {
+    const [routeData, setRouteData] = useState(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
-    const [routeData, setRouteData] = useState(null);
 
-    // 1. Nominatim API: Resolves string labels to real geometric GPS pairs
-    const geocodeLocation = async (query) => {
-        if (!query) return null;
-        try {
-            const response = await fetch(
-                `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1`,
-                { headers: { 'User-Agent': 'ClimatiqaEcoTransitEngine/1.0' } }
-            );
-            if (!response.ok) throw new Error('Geocoding engine offline.');
-            const data = await response.json();
-            
-            if (data && data.length > 0) {
-                return {
-                    name: data[0].display_name,
-                    coordinates: [parseFloat(data[0].lat), parseFloat(data[0].lon)] // [lat, lon]
-                };
-            }
-            throw new Error(`Could not find coordinates for "${query}".`);
-        } catch (err) {
-            console.error(err);
-            throw err;
-        }
-    };
-
-    // 2. Main Optimization Engine: Coordinates pipeline execution
-    const optimizeRoute = async ({ origin, destination, vehicleType, vehicleMake }) => {
+    const optimizeRoute = useCallback(async ({ origin, destination, vehicleType, vehicleMake }) => {
         setLoading(true);
         setError(null);
         try {
-            const originGeo = await geocodeLocation(origin);
-            const destGeo = await geocodeLocation(destination);
-
-            const response = await fetch(`${BASE_URL}/api/premium/ai-optimizer/`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    origin: originGeo.name,
-                    origin_coords: originGeo.coordinates,
-                    destination: destGeo.name,
-                    destination_coords: destGeo.coordinates,
-                    vehicle_type: vehicleType,
-                    vehicle_make: vehicleMake
-                })
-            });
-
-            if (!response.ok) throw new Error('Optimization failed.');
-            const data = await response.json();
-
-            setRouteData({
-                origin: originGeo,
-                destination: destGeo,
-                summary: {
-                    estimated_distance_km: data.estimated_distance_km,
-                    total_carbon_saved_kg: data.total_carbon_saved_kg,
-                    narrative: data.narrative
-                },
-                milestones: data.milestones || []
-            });
-        } catch (err) {
-            setError(err.message);
-            setRouteData(null);
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    // 3. Process Voice Form Data Streams
-    const processVoiceLog = async (audioBlob, vehicleType) => {
-        setLoading(true);
-        setError(null);
-        try {
-            const formData = new FormData();
-            
-            // Match the extension parameter exactly to the stream type
-            const fileExtension = audioBlob.type.includes('webm') ? 'webm' : 'ogg';
-            
-            // Append binary stream with exact 'file' key required by request.FILES['file']
-            formData.append('file', audioBlob, `voice_input.${fileExtension}`);
-
             const token = localStorage.getItem('token');
-            
-            const response = await fetch(`${BASE_URL}/api/voice/log/`, {
+            const response = await fetch('http://localhost:8000/api/premium/ai-optimizer/', {
                 method: 'POST',
                 headers: {
-                    ...(token && { 'Authorization': `Bearer ${token}` })
-                    // CRITICAL: DO NOT add 'Content-Type': 'multipart/form-data' here manually.
-                    // Leaving it out allows the browser to automatically insert the correct dynamic multi-part boundaries.
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`,
                 },
-                body: formData
+                body: JSON.stringify({ origin, destination, vehicleType, vehicleMake }),
             });
 
             if (!response.ok) {
-                // Read backend error payload message context for easier debugging
-                const errorData = await response.json().catch(() => ({}));
-                throw new Error(errorData.error || "Voice recording rejected.");
+                const errData = await response.json();
+                throw { status: response.status, ...errData };
             }
-            
-            const data = await response.json();
 
-            if (data.action === "FORWARD_TO_ROUTE_PLANNER" || data.inferred_parameters?.task === "route") {
-                const params = data.inferred_parameters;
-                if (params.origin && params.destination) {
-                    await optimizeRoute({
-                        origin: params.origin,
-                        destination: params.destination,
-                        vehicleType,
-                        vehicleMake: params.vehicle_make || 'Standard'
-                    });
-                }
-            } else {
-                alert(data.message || "Voice logged successfully.");
-                setLoading(false);
-            }
+            const data = await response.json();
+            setRouteData(data);
         } catch (err) {
-            setError(err.message);
+            setError(err.message || err);
+        } finally {
             setLoading(false);
         }
-    };
+    }, []);
 
-    return { optimizeRoute, processVoiceLog, routeData, loading, error };
+    const processVoiceLog = useCallback(async (audioBlob, defaultVehicleType = 'GASOLINE') => {
+        setLoading(true);
+        setError(null);
+        try {
+            const token = localStorage.getItem('token');
+            
+            // 1. Build MultiPart form data payload
+            const formData = new FormData();
+            // Appending with an explicit file extension matches what standard audio recorders output
+            formData.append('file', audioBlob, 'voicelog.webm'); 
+
+            // 2. Dispatch to your newly registered route
+            const response = await fetch('http://127.0.0.1:8000/api/voice/log/', {
+                method: 'POST',
+                headers: {
+                    // Note: Leave Content-Type blank so the browser handles boundary partitions automatically!
+                    'Authorization': `Bearer ${token}`,
+                },
+                body: formData,
+            });
+
+            if (!response.ok) {
+                const errData = await response.json();
+                throw { status: response.status, ...errData };
+            }
+
+            const data = await response.json();
+
+            // 3. Handle Voice Navigation Command Interception
+            if (data.action === 'FORWARD_TO_ROUTE_PLANNER') {
+                const { origin, destination, vehicle_type, vehicle_make } = data.inferred_parameters;
+                
+                // Chain directly back into your route rendering pipe
+                await optimizeRoute({
+                    origin,
+                    destination,
+                    vehicleType: vehicle_type,
+                    vehicleMake: vehicle_make
+                });
+                
+                return { type: 'ROUTE_UPDATED', transcript: data.transcript_captured };
+            }
+
+            // 4. Handle Standard Activity Logging Response
+            return { type: 'LOG_COMMITTED', details: data.activity_logged, transcript: data.raw_transcript };
+
+        } catch (err) {
+            setError(err.message || err);
+            return null;
+        } finally {
+            setLoading(false);
+        }
+    }, [optimizeRoute]);
+
+    return {
+        optimizeRoute,
+        processVoiceLog,
+        routeData,
+        loading,
+        error,
+        setError
+    };
 }

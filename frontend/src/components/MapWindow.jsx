@@ -4,21 +4,21 @@ import maplibregl from 'maplibre-gl';
 import * as turf from '@turf/turf';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
-function MapWindow({ routeData }) {
+export default function MapWindow({ routeData }) {
     const mapContainerRef = useRef(null);
     const mapRef = useRef(null);
+    const routeMarkersRef = useRef([]);
 
-    const defaultCenter = [36.8219, -1.2921]; // Nairobi [lng, lat]
-
+    // Initialize Map Instance Base Canvas
     useEffect(() => {
         if (mapRef.current) return;
 
         mapRef.current = new maplibregl.Map({
             container: mapContainerRef.current,
             style: 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
-            center: defaultCenter,
-            zoom: 11,
-            attributionControl: false
+            center: [36.8219, -1.2921], // Nairobi Default Datums
+            zoom: 12,
+            pitch: 20
         });
 
         mapRef.current.addControl(new maplibregl.NavigationControl(), 'top-right');
@@ -31,100 +31,84 @@ function MapWindow({ routeData }) {
         };
     }, []);
 
+    // Watcher: Re-renders polylines and camera vectors reactively when state coordinates change
     useEffect(() => {
-        if (!mapRef.current || !routeData) return;
-
-        const origin = routeData.origin?.coordinates; 
-        const dest = routeData.destination?.coordinates; 
-
-        if (!origin || !dest) return;
-
-        const originLngLat = [origin[1], origin[0]];
-        const destLngLat = [dest[1], dest[0]];
         const map = mapRef.current;
+        if (!map || !routeData) return;
 
-        // Fetch street-by-street road paths from OSRM API routing system
-        const fetchOSRMRoute = async () => {
-            try {
-                const response = await fetch(
-                    `https://router.project-osrm.org/route/v1/driving/${originLngLat.join(',')};${destLngLat.join(',')}?overview=full&geometries=geojson`
-                );
-                const data = await response.json();
-
-                if (!data.routes || data.routes.length === 0) {
-                    throw new Error("No road mapping geometry path returned from OSRM.");
-                }
-
-                let routeCoordinates = data.routes[0].geometry.coordinates;
-
-                // Client-side smoothing layer using Turf.js Bezier Splines
-                // This converts rough street vectors into flowing eco-curves
-                const rawLineFeature = turf.lineString(routeCoordinates);
-                const smoothedLineFeature = turf.bezierSpline(rawLineFeature, {
-                    resolution: 10000,
-                    sharpness: 0.85
-                });
-
-                // Clear previous layers
-                if (map.getLayer('transit-line')) map.removeLayer('transit-line');
-                if (map.getSource('route')) map.removeSource('route');
-
-                // Draw the dynamic smoothed line geometry path onto MapLibre
-                map.addSource('route', {
-                    type: 'geojson',
-                    data: smoothedLineFeature
-                });
-
-                map.addLayer({
-                    id: 'transit-line',
-                    type: 'line',
-                    source: 'route',
-                    layout: {
-                        'line-join': 'round',
-                        'line-cap': 'round'
-                    },
-                    paint: {
-                        'line-color': '#10b981', // Emerald green trace line
-                        'line-width': 5,
-                        'line-blur': 0.5
-                    }
-                });
-
-                // Compute bounding box using turf to fit the map view dynamically
-                const bbox = turf.bbox(smoothedLineFeature);
-                map.fitBounds(bbox, {
-                    padding: 60,
-                    essential: true,
-                    duration: 2000
-                });
-
-            } catch (err) {
-                console.warn("OSRM routing failed, falling back to clean geodesic line string architecture:", err);
-                // Fallback straight vector logic if OSRM is overloaded
-                if (map.getLayer('transit-line')) map.removeLayer('transit-line');
-                if (map.getSource('route')) map.removeSource('route');
-
-                map.addSource('route', {
-                    type: 'geojson',
-                    data: turf.lineString([originLngLat, destLngLat])
-                });
-                map.addLayer({
-                    id: 'transit-line',
-                    type: 'line',
-                    source: 'route',
-                    paint: { 'line-color': '#3b82f6', 'line-width': 4 }
-                });
-            }
-        };
-
-        fetchOSRMRoute();
+        // Ensure we execute structural pathing adjustments only after map styles finish compiling
+        if (!map.isStyleLoaded()) {
+            map.once('load', () => drawReactiveRoute(routeData));
+        } else {
+            drawReactiveRoute(routeData);
+        }
     }, [routeData]);
 
+    const drawReactiveRoute = async (data) => {
+        const map = mapRef.current;
+        if (!map) return;
+
+        try {
+            // Helper conversion task matching Nominatim addresses to map geometry points
+            const geocode = async (addr) => {
+                const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(addr + ', Kenya')}&limit=1`);
+                const items = await res.json();
+                if (!items || items.length === 0) throw new Error("Trace node missing mapping references.");
+                return [parseFloat(items[0].lon), parseFloat(items[0].lat)];
+            };
+
+            const [startCoords, endCoords] = await Promise.all([
+                geocode(data.origin || "Runda, Nairobi"),
+                geocode(data.destination || "Kileleshwa, Nairobi")
+            ]);
+
+            // Clear legacy viewport pointer coordinates
+            routeMarkersRef.current.forEach(m => m.remove());
+            routeMarkersRef.current = [];
+
+            // Anchor clear indicators mapping source and target locations
+            const startMarker = new maplibregl.Marker({ color: '#10b981' }).setLngLat(startCoords).addTo(map);
+            const endMarker = new maplibregl.Marker({ color: '#ef4444' }).setLngLat(endCoords).addTo(map);
+            routeMarkersRef.current = [startMarker, endMarker];
+
+            // Request routing geometries from OSRM
+            const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${startCoords.join(',')};${endCoords.join(',')}?overview=full&geometries=geojson`;
+            const osrmRes = await fetch(osrmUrl);
+            const osrmData = await osrmRes.json();
+
+            if (osrmData.routes && osrmData.routes.length > 0) {
+                const geometry = osrmData.routes[0].geometry;
+
+                // Mutate lines or construct a clean source container layout frame dynamically
+                if (map.getSource('optimized-route')) {
+                    map.getSource('optimized-route').setData(geometry);
+                } else {
+                    map.addSource('optimized-route', { type: 'geojson', data: geometry });
+                    map.addLayer({
+                        id: 'route-line',
+                        type: 'line',
+                        source: 'optimized-route',
+                        layout: { 'line-join': 'round', 'line-cap': 'round' },
+                        paint: { 'line-color': '#10b981', 'line-width': 5, 'line-opacity': 0.85 }
+                    });
+                }
+
+                // Smoothly focus viewport onto the active vector tracking span via Turf.js
+                const bbox = turf.bbox(geometry);
+                map.fitBounds(bbox, { padding: 40, maxZoom: 14, duration: 1000 });
+            }
+        } catch (err) {
+            console.error("Spatial routing renderer tracking error:", err);
+        }
+    };
+
     return (
-        <div className='bg-white/10 backdrop-blur-xl border border-white/20 rounded-3xl p-4 shadow-2xl h-[500px] w-full relative overflow-hidden'>
-            <div ref={mapContainerRef} className="w-full h-full rounded-2xl overflow-hidden" />
+        <div className="w-full h-[500px] rounded-3xl overflow-hidden border border-white/10 relative shadow-2xl">
+            <div ref={mapContainerRef} className="absolute inset-0 w-full h-full" />
+            <div className="absolute top-3 left-3 bg-slate-950/80 backdrop-blur-md border border-white/10 px-2.5 py-1 rounded-md pointer-events-none select-none text-[9px] font-black tracking-widest uppercase text-white/50 z-10 flex items-center gap-1.5">
+                <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                OSRM + MapLibre Live Matrix
+            </div>
         </div>
     );
 }
-
-export default MapWindow;

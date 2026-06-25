@@ -21,7 +21,6 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework.exceptions import Throttled
 
-
 # Import local modules cleanly
 from .models import UserProfile, ActivityLog, SystemComplaint, RouteSearchLog
 from .permissions import IsOwner, IsHighestPaidTier, PremiumTierPermission
@@ -112,7 +111,7 @@ class PremiumAIActionView(APIView):
 
             if not origin or not destination:
                 return Response({"error": "Origin and destination fields are required."}, status=status.HTTP_400_BAD_REQUEST)
-                        
+                          
             system_guidance = (
                 "You are a strict, analytical transit emission calculation engine.\n"
                 "Your core task is to calculate realistic routing distances and carbon metrics based on the input metrics.\n"
@@ -344,7 +343,6 @@ class MpesaCarbonmarkCallbackView(APIView):
         if result_code != 0:
             return Response(safaricom_success_ack, status=status.HTTP_200_OK)
 
-        # --- PAYMENT IS SUCCESSFUL: PROCESS DOWNSTREAM SYSTEM SIDE EFFECTS ---
         user_id = request.GET.get("user_id")
         offset_kg = request.GET.get("offset_kg", "10")
         is_premium_upgrade = request.GET.get("upgrade") == "true"
@@ -353,7 +351,6 @@ class MpesaCarbonmarkCallbackView(APIView):
             profile = None
             user = None
 
-            # 1. PROFILE RESOLUTION SEQUENCE
             if user_id:
                 # Query route path A: Fall back on classic URL routing parameters
                 try:
@@ -373,7 +370,6 @@ class MpesaCarbonmarkCallbackView(APIView):
             if not profile:
                 return Response(safaricom_success_ack, status=status.HTTP_200_OK)
 
-            # 2. EVALUATE LOGIC GATEWAY: PREMIUM UPGRADE VS. CARBON OFFSETS
             if is_premium_upgrade or (profile.mpesa_checkout_request_id == checkout_request_id and checkout_request_id is not None):
                 
                 # Execute the 30-day timeline tracking state method safely
@@ -538,6 +534,7 @@ class VoiceLogView(APIView):
         if not groq_key:
             return Response({"error": "AI Audio Transcription Engine Offline."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
+        # 1. TRANSCRIPTION PHASE (Speech-To-Text)
         try:
             client = Groq(api_key=groq_key)
             transcription = client.audio.transcriptions.create(
@@ -546,59 +543,107 @@ class VoiceLogView(APIView):
                 response_format="json",
                 temperature=0.0
             )
-            raw_text = transcription.text.lower()
-
+            raw_text = transcription.text.strip()
         except Exception as api_error:
             return Response({"error": f"Speech-to-Text conversion failed: {str(api_error)}"}, status=status.HTTP_502_BAD_GATEWAY)
 
-        # Map patterns dynamically to match your ActivityLog schema's validation choices
-        if "run" in raw_text or "jog" in raw_text:
-            category_group = "transportation"
-            activity_label = "Running"
-            metric_val = 5.0   # Assumed baseline km
-            metric_unit = "km"
-            computed_co2 = 0.0 
-        elif "bulb" in raw_text or "led" in raw_text or "power" in raw_text:
-            category_group = "home_energy"
-            activity_label = "LED Upgrade Efficiency"
-            metric_val = 1.0   # Per unit installation base
-            metric_unit = "kWh"
-            computed_co2 = -10.5
-        else:
-            category_group = "diet"
-            activity_label = "Generic Low-Emission Meal"
-            metric_val = 1.0
-            metric_unit = "servings"
-            computed_co2 = -0.5
-
-        # Saved database insertions using your exact model layout attributes
-        log = ActivityLog.objects.create(
-            user=request.user,
-            category=category_group,
-            activity_type=activity_label,
-            input_value=metric_val,
-            unit=metric_unit,
-            co2e_kg=computed_co2
+        # 2. INTENT EXTRACTION PHASE (LLM Structured Processing)
+        system_guidance = (
+            "You are an analytical intent processing engine.\n"
+            "Analyze the voice transcript and classify it into one of two primary execution paths:\n"
+            "1. 'route' -> If the user wants a trip planned or distances calculated between places.\n"
+            "2. 'log' -> If the user is reporting a completed daily activity, energy usage, or meal ingestion.\n\n"
+            "Provide your final classification strictly in JSON format matching this exact schema:\n"
+            "{\n"
+            "  \"intent\": \"route\" | \"log\",\n"
+            "  \"extracted_payload\": {\n"
+            "     \"origin\": \"string or null\",\n"
+            "     \"destination\": \"string or null\",\n"
+            "     \"vehicle_make\": \"string or null\",\n"
+            "     \"category\": \"transportation\" | \"home_energy\" | \"diet\",\n"
+            "     \"activity_type\": \"string (descriptive label describing what was done)\",\n"
+            "     \"input_value\": float,\n"
+            "     \"unit\": \"string (km, kWh, servings, etc)\",\n"
+            "     \"co2e_kg\": float (Compute realistic carbon values. Savings are negative numbers, emissions are positive numbers)\n"
+            "  }\n"
+            "}\n"
+            "Return ONLY raw JSON. No markdown ticks."
         )
 
-        return Response({
-            "message": "Voice entry transcribed and committed to timeline log successfully!",
-            "raw_transcript": raw_text,
-            "activity_logged": {
-                "category": log.category,
-                "type": log.activity_type,
-                "impact_saved": log.co2e_kg
-            }
-        }, status=status.HTTP_201_CREATED)
-    
+        try:
+            intent_completion = client.chat.completions.create(
+                model="llama-3.1-8b-instant",
+                messages=[
+                    {"role": "system", "content": system_guidance},
+                    {"role": "user", "content": f"Analyze this user voice transcript: \"{raw_text}\""}
+                ],
+                temperature=0.1,
+                response_format={"type": "json_object"}
+            )
+            
+            ai_analysis = json.loads(intent_completion.choices[0].message.content.strip())
+            intent_type = ai_analysis.get("intent")
+            payload = ai_analysis.get("extracted_payload", {})
+
+        except Exception as err:
+            return Response({"error": f"Failed parsing voice metrics alignment parameters: {str(err)}"}, status=status.HTTP_502_BAD_GATEWAY)
+
+        # 3. ROUTING & DATA ACQUISITION EXECUTION FORKS
+        if intent_type == "route":
+            # If the user spoken phrase intends a route mapping, direct them to your premium transit view workflow
+            # We preserve standard requests parameters passing via custom internal dictionary formatting
+            origin = payload.get("origin")
+            destination = payload.get("destination")
+            
+            if not origin or not destination:
+                return Response({"error": "Voice route command missing clear origin or destination tracking terms."}, status=status.HTTP_400_BAD_REQUEST)
+            
+            return Response({
+                "action": "FORWARD_TO_ROUTE_PLANNER",
+                "transcript_captured": raw_text,
+                "inferred_parameters": {
+                    "task": "route",
+                    "origin": origin,
+                    "destination": destination,
+                    "vehicle_type": payload.get("unit") or "Car",
+                    "vehicle_make": payload.get("vehicle_make") or "Standard ICE"
+                }
+            }, status=status.HTTP_200_OK)
+
+        else:
+            # 1. Safely extract raw values, ensuring None gets overridden by a default value
+            raw_input = payload.get("input_value")
+            input_value = float(raw_input) if raw_input is not None else 1.0
+
+            raw_co2e = payload.get("co2e_kg")
+            co2e_kg = float(raw_co2e) if raw_co2e is not None else 0.0
+
+            # 2. Commit the clean parameters directly into your database schema
+            log = ActivityLog.objects.create(
+                user=request.user,
+                category=payload.get("category", "diet"),
+                activity_type=payload.get("activity_type", "Generic Logged Item"),
+                input_value=input_value,
+                unit=payload.get("unit", "units"),
+                co2e_kg=co2e_kg
+            )
+
+            return Response({
+                "message": "Voice logging captured and committed successfully!",
+                "raw_transcript": raw_text,
+                "activity_logged": {
+                    "category": log.category,
+                    "type": log.activity_type,
+                    "co2e_kg": log.co2e_kg
+                }
+            }, status=status.HTTP_201_CREATED)
+        
 class UserProfileDashboardView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
         user = request.user
         profile, created = UserProfile.objects.get_or_create(user=user)
-
-        # Gather single unified log timeline sequence
         user_activities = ActivityLog.objects.filter(user=user).order_by('-id')
         
         cumulative_emitted_kg = 0.0
@@ -609,16 +654,12 @@ class UserProfileDashboardView(APIView):
             if impact > 0:
                 cumulative_emitted_kg += impact
             else:
-                # Turn negative reduction entries into a positive tally tracking value
                 cumulative_saved_kg += abs(impact)
 
-        # Incorporate paid platform offsets (e.g. Mpesa -> Carbonmark purchases)
         paid_offset_kg = float(profile.cumulative_offset_kg or 0.0)
         
-        # Combined aggregate total of historical actions + paid balance actions
         total_lifetime_offset_kg = cumulative_saved_kg + paid_offset_kg
 
-        # Calculate remaining balance debt metrics safely
         net_outstanding_deficit_kg = max(0.0, cumulative_emitted_kg - total_lifetime_offset_kg)
         carbonmark_recommended_units = round(net_outstanding_deficit_kg / 1000.0, 4)
 
@@ -645,14 +686,15 @@ class UserProfileDashboardView(APIView):
             "profile": {
                 "username": f"{user.first_name} {user.last_name}".strip() or user.username,
                 "email": user.email,
+                "phone_number": profile.phone_number, 
                 "account_tier": profile.account_tier,
                 "ai_query_count": profile.ai_query_count,
             },
             "lifetime_footprint_balance": {
                 "cumulative_emitted_kg": round(cumulative_emitted_kg, 2),
-                "cumulative_saved_kg": round(cumulative_saved_kg, 2), # Route/Item choices behavior savings
-                "cumulative_offset_kg": round(paid_offset_kg, 2),      # Direct paid transactions
-                "total_lifetime_offset_kg": round(total_lifetime_offset_kg, 2), # Absolute complete protection number
+                "cumulative_saved_kg": round(cumulative_saved_kg, 2), 
+                "cumulative_offset_kg": round(paid_offset_kg, 2),   
+                "total_lifetime_offset_kg": round(total_lifetime_offset_kg, 2), 
                 "net_outstanding_deficit_kg": round(net_outstanding_deficit_kg, 2),
                 "carbonmark_recommended_offset_units": carbonmark_recommended_units
             },

@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { ShoppingBag, Sparkles, X, Leaf, CheckCircle } from 'lucide-react';
 
 function ProductLogPanel() {
-    const [category, setCategory] = useState('diet');
+    const [category, setCategory] = useState('consumables');
     const [activityType, setActivityType] = useState('');
     const [quantity, setQuantity] = useState(1);
     const [logging, setLogging] = useState(false);
@@ -68,7 +68,7 @@ function ProductLogPanel() {
                         onChange={(e) => setCategory(e.target.value)}
                         className="p-4 bg-zinc-900/50 backdrop-blur-md border border-white/10 rounded-2xl text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/30 text-sm font-semibold"
                     >
-                        <option value="diet">Consumables</option>
+                        <option value="consumables">Consumables</option>
                         <option value="home_energy">Home Utilities / Energy</option>
                         <option value="transportation">Logistical Supply</option>
                     </select>
@@ -109,7 +109,7 @@ function ProductLogPanel() {
 
                 {errorMessage && (
                     <div className="col-span-1 md:col-span-3 text-center text-xs font-semibold text-red-300 bg-red-500/10 border border-red-500/20 p-3 rounded-xl mt-2">
-                        ⚠️ {errorMessage}
+                        {errorMessage}
                     </div>
                 )}
             </div>
@@ -123,8 +123,8 @@ function ProductLogPanel() {
                                 <Leaf className="w-4 h-4" />
                             </div>
                             <div>
-                                <h4 className="text-sm font-black uppercase tracking-wider text-emerald-400">AI Environmental Footprint Ledger</h4>
-                                <p className="text-[10px] text-white/40">Processed via Groq Unified Optimization Node</p>
+                                <h4 className="text-sm font-black uppercase tracking-wider text-emerald-400">AI Environmental Footprint</h4>
+                                <p className="text-[10px] text-white/40">Processed via Groq </p>
                             </div>
                         </div>
                         <button 

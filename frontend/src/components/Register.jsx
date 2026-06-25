@@ -52,7 +52,7 @@ const RegisterComponent = ({ onAuthSuccess }) => {
                 }
             } else {
                 const errorMsg = typeof data === 'object' ? JSON.stringify(data) : data.error;
-                alert(errorMsg || "Authentication process failed.");
+                alert(errorMsg || "Authentication failed.");
             }
         } catch (error) {
             console.error("Connection error:", error);
@@ -68,10 +68,10 @@ const RegisterComponent = ({ onAuthSuccess }) => {
             >
                 <div className="space-y-1">
                     <h2 className="text-xl font-black tracking-tight text-white uppercase">
-                        {isLoginMode ? 'Climatiqa Login' : 'Create Climatiqa Account'}
+                        {isLoginMode ? 'Log in' : 'Create Climatiqa Account'}
                     </h2>
                     <p className="text-xs font-semibold text-green-400/80 tracking-wider uppercase">
-                        {isLoginMode ? 'Access Carbon Optimization Panel' : 'Setup Environmental Identity Profile'}
+                        {isLoginMode ? 'Access your account' : 'Setup an account'}
                     </p>
                 </div>
                 
@@ -148,7 +148,7 @@ const RegisterComponent = ({ onAuthSuccess }) => {
                     type="submit" 
                     className="w-full mt-2 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white p-3 rounded-xl font-bold tracking-wide transition-all duration-300 text-sm uppercase"
                 >
-                    {isLoginMode ? 'Log In & Verify' : 'Sign Up & Initialize'}
+                    {isLoginMode ? 'Log In' : 'Sign Up'}
                 </button>
 
                 <div className="text-center mt-4">
@@ -157,7 +157,7 @@ const RegisterComponent = ({ onAuthSuccess }) => {
                         onClick={() => setIsLoginMode(!isLoginMode)}
                         className="text-xs font-bold text-green-400 hover:text-green-300 uppercase tracking-wider underline transition-colors"
                     >
-                        {isLoginMode ? "Don't have an account? Sign Up" : 'Already configured? Log In'}
+                        {isLoginMode ? "Don't have an account? Sign Up" : 'Already have an account? Log In'}
                     </button>
                 </div>
             </form>

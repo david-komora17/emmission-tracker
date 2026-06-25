@@ -55,7 +55,6 @@ class PremiumTierPermission(IsAuthenticated):
                         "amount_payable": 5.00  # Matched to your exact payment specification
                     }
                 )
-                
             return True
             
         except AttributeError:

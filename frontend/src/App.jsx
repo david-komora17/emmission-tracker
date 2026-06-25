@@ -1,6 +1,6 @@
 // src/App.jsx
 import React, { useState, useRef, useEffect } from 'react';
-import { Leaf, Navigation2, ShoppingBag, Mic, Radio, Square, ShieldAlert, LogOut } from 'lucide-react';
+import { Leaf, Navigation2, ShoppingBag, Mic, Radio, ShieldAlert, LogOut } from 'lucide-react';
 import SearchBar from './components/SearchBar';
 import MapWindow from './components/MapWindow';
 import LoadingSpinner from './components/LoadingSpinner';
@@ -9,6 +9,7 @@ import ProductLogPanel from './components/ProductLogPanel';
 import RegisterComponent from './components/Register';
 import AdminDashboard from './components/AdminDash';
 import QuotaPaywallCard from './components/Paywall'; 
+import UserProfile from './components/UserProfile';
 import Footer from './components/Footer';                    
 import { useTransitOptimizer } from './hooks/useTransitOptimizer';
 
@@ -18,8 +19,8 @@ function App() {
     const [isRecording, setIsRecording] = useState(false);
     const [userRole, setUserRole] = useState(localStorage.getItem('user_role') || 'USER');
     const [userFirstName, setUserFirstName] = useState('');
+    const [showProfileCard, setShowProfileCard] = useState(false);
     
-    // Quota tracking block for paywall interception 
     const [showPaywall, setShowPaywall] = useState(false);
     const [paywallMetrics, setPaywallMetrics] = useState(null);
     
@@ -28,7 +29,6 @@ function App() {
 
     const { optimizeRoute, processVoiceLog, routeData, loading, error, setError } = useTransitOptimizer();
 
-    // Parse the system owner's first name token for the Chrome-style avatar circle
     useEffect(() => {
         if (isAuthenticated) {
             const rawName = localStorage.getItem('username') || 'Climatiqa User';
@@ -38,7 +38,6 @@ function App() {
         }
     }, [isAuthenticated]);
 
-    // Global intercept watcher targeting 429 structured validation payload attributes
     useEffect(() => {
         if (error && typeof error === 'object' && (error.code === 'TRIAL_EXPIRED' || error.status === 429)) {
             setPaywallMetrics(error);
@@ -57,13 +56,13 @@ function App() {
         setActiveTab('transit');
     };
 
-    const handleRouteRequest = ({ origin, destination }) => {
-        // Fallback or default vehicle options passed directly down to the optimizer hook safely
+    // Modified to capture full metadata attributes from the updated SearchBar
+    const handleRouteRequest = ({ origin, destination, vehicleType, vehicleMake }) => {
         optimizeRoute({
             origin,
             destination,
-            vehicleType: 'GASOLINE',
-            vehicleMake: 'Standard Fleet Profile'
+            vehicleType: vehicleType || 'SUV',
+            vehicleMake: vehicleMake || 'Standard Fleet Profile'
         });
     };
 
@@ -82,7 +81,15 @@ function App() {
                 const recordedType = mediaRecorderRef.current.mimeType;
                 const audioBlob = new Blob(audioChunksRef.current, { type: recordedType });
                 stream.getTracks().forEach(track => track.stop());
-                await processVoiceLog(audioBlob, 'GASOLINE');
+                
+                const result = await processVoiceLog(audioBlob, 'GASOLINE');
+                if (result) {
+                    if (result.type === 'ROUTE_UPDATED') {
+                        setActiveTab('transit');
+                    } else if (result.type === 'LOG_COMMITTED') {
+                        alert(`Logged: "${result.transcript}" (${result.details.co2e_kg} kg CO2e)`);
+                    }
+                }
             };
 
             mediaRecorderRef.current.start();
@@ -100,7 +107,6 @@ function App() {
         }
     };
 
-    // Unauthenticated Session Gateway Block
     if (!isAuthenticated) {
         return (
             <div className="min-h-screen w-full bg-gradient-to-br from-slate-900 via-emerald-950 to-zinc-950 text-white font-sans antialiased flex items-center justify-center py-16 px-4">
@@ -112,7 +118,6 @@ function App() {
     return (
         <div className="min-h-screen w-full bg-gradient-to-br from-slate-900 via-emerald-950 to-zinc-950 text-white font-sans antialiased selection:bg-green-500/30 py-8 px-4 sm:px-6 lg:px-8 flex flex-col justify-between">
             
-            {/* Paywall Overlay Interceptor Layout */}
             {showPaywall && (
                 <QuotaPaywallCard 
                     errorDetails={paywallMetrics} 
@@ -121,16 +126,20 @@ function App() {
                 />
             )}
 
-            <div className="max-w-7xl mx-auto space-y-8 w-full mb-auto">
+            {showProfileCard && (
+                <UserProfile onClose={() => setShowProfileCard(false)} />
+            )}
+
+            <div className="max-w-7xl mx-auto space-y-6 w-full mb-auto">
                 
                 {/* Navigation Header Panel */}
-                <header className="flex flex-col md:flex-row items-center justify-between gap-4 border-b border-white/5 pb-6">
+                <header className="flex flex-col md:flex-row items-center justify-between gap-4 border-b border-white/5 pb-4">
                     <div className="flex items-center space-x-3">
                         <div className="p-2.5 bg-gradient-to-br from-green-400 to-emerald-600 rounded-2xl shadow-lg shadow-green-500/20">
-                            <Leaf className="w-7 h-7 text-white animate-pulse" />
+                            <Leaf className="w-6 h-6 text-white" />
                         </div>
                         <div>
-                            <h1 className="text-2xl font-black tracking-tight text-white">CLIMATIQA</h1>
+                            <h1 className="text-xl font-black tracking-tight text-white">CLIMATIQA</h1>
                         </div>
                     </div>
 
@@ -169,18 +178,19 @@ function App() {
                     </div>
                     
                     {/* Identity Widget Deck */}
-                    <div className="flex items-center space-x-2 bg-white/5 pl-3 pr-1.5 py-1 rounded-full border border-white/10">
-                        <span className="text-xs font-bold tracking-wide text-white/80">{userFirstName}</span>
-                        <div 
-                            title={`Logged in as ${userFirstName}`}
-                            className="w-7 h-7 rounded-full bg-gradient-to-tr from-blue-500 to-emerald-500 flex items-center justify-center text-xs font-black text-white uppercase shadow-md select-none"
-                        >
+                    <div 
+                        onClick={() => setShowProfileCard(true)}
+                        className="flex items-center space-x-2 bg-white/5 pl-3 pr-1.5 py-1 rounded-full border border-white/10 cursor-pointer hover:bg-white/10 transition-all duration-200 group active:scale-95"
+                    >
+                        <span className="text-xs font-bold tracking-wide text-white/80 group-hover:text-white transition-colors">
+                            {userFirstName}
+                        </span>
+                        <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-blue-500 to-emerald-500 flex items-center justify-center text-xs font-black text-white uppercase shadow-md select-none">
                             {userFirstName.charAt(0) || 'C'}
                         </div>
                         <button 
-                            onClick={handleLogOut}
-                            title="Log out of application session"
-                            className="p-1.5 text-white/40 hover:text-red-400 transition-colors rounded-full"
+                            onClick={(e) => { e.stopPropagation(); handleLogOut(); }}
+                            className="p-1.5 text-white/40 hover:text-red-400 transition-colors rounded-full relative z-10"
                         >
                             <LogOut className="w-3.5 h-3.5" />
                         </button>
@@ -192,29 +202,30 @@ function App() {
                     <AdminDashboard />
                 ) : (
                     <>
-                        {/* Audio Streaming Input Dock */}
-                        <div className="w-full max-w-4xl mx-auto flex items-center justify-between p-4 bg-zinc-900/40 backdrop-blur-md border border-white/5 rounded-2xl shadow-md">
+                        {/* Interactive Voice Console Layer */}
+                        <div className="w-full max-w-4xl mx-auto flex items-center justify-between p-3.5 bg-zinc-900/40 backdrop-blur-md border border-white/5 rounded-2xl shadow-md">
                             <div className="flex items-center space-x-3">
                                 <div className={`p-2 rounded-xl transition-colors ${isRecording ? 'bg-red-500/20 text-red-400 animate-pulse' : 'bg-white/5 text-white/40'}`}>
                                     {isRecording ? <Radio className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
                                 </div>
                                 <span className="text-xs font-semibold tracking-wide text-white/70">
-                                    {isRecording ? "Listening to voice input parameters..." : "Tap to issue environmental voice tracking directions directly via Whisper"}
+                                    {isRecording ? "Listening to voice input..." : "Provide inputs via voice."}
                                 </span>
                             </div>
                             <button 
                                 onClick={isRecording ? stopRecordingVoice : startRecordingVoice}
-                                className={`px-5 py-2.5 text-xs font-bold rounded-xl transition-all duration-300 flex items-center space-x-2 border ${
+                                className={`px-5 py-2 text-xs font-bold rounded-xl transition-all duration-300 flex items-center space-x-2 border ${
                                     isRecording 
                                         ? 'bg-red-500 hover:bg-red-600 text-white border-red-400/30' 
                                         : 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border-emerald-500/30'
                                 }`}
                             >
-                                <span>{isRecording ? "Stop Capture" : "Voice Stream"}</span>
+                                <span>{isRecording ? "Stop" : "Live"}</span>
                             </button>
                         </div>
 
-                        <section>
+                        {/* Search Input Area Stack Section */}
+                        <section className="w-full">
                             {activeTab === 'transit' ? (
                                 <SearchBar onOptimize={handleRouteRequest} loading={loading} />
                             ) : (
@@ -228,17 +239,18 @@ function App() {
                             </div>
                         )}
 
-                        <main className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
+                        {/* Combined Spatial Map Frame Layout Workspace */}
+                        <main className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
                             <div className="lg:col-span-2 w-full">
                                 {loading && !routeData ? (
-                                    <div className="bg-white/10 border border-white/20 rounded-3xl p-24 flex items-center justify-center">
+                                    <div className="bg-slate-900/40 border border-white/5 rounded-3xl h-[500px] flex items-center justify-center backdrop-blur-md">
                                         <LoadingSpinner />
                                     </div>
                                 ) : (
                                     <MapWindow routeData={routeData} />
                                 )}
                             </div>
-                            <div className="lg:col-span-1 w-full">
+                            <div className="lg:col-span-1 w-full h-full">
                                 <MilestonesPanel routeData={routeData} />
                             </div>
                         </main>
@@ -246,8 +258,7 @@ function App() {
                 )}
             </div>
 
-            {/* Layout Consolidated Footer */}
-            <div className="max-w-7xl mx-auto w-full">
+            <div className="max-w-7xl mx-auto w-full pt-8">
                 <Footer />
             </div>
         </div>

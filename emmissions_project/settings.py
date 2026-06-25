@@ -34,6 +34,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'rest_framework',
+    'corsheaders', 
     'emmissions_app',
     'rest_framework_simplejwt',
     'rest_framework_simplejwt.token_blacklist',
@@ -41,6 +42,7 @@ INSTALLED_APPS = [
 
 # FIXED LANDMINE 3: Shifted WhiteNoiseMiddleware immediately below SecurityMiddleware
 MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',  # <-- Handles static files safely & fast
     'django.contrib.sessions.middleware.SessionMiddleware',
@@ -142,3 +144,12 @@ STORAGES = {
         "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
     },
 }
+
+# CORS Configuration Whitelist Definitions
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
+
+# Allow credentials if you handle session cookies or Authorization headers safely
+CORS_ALLOW_CREDENTIALS = True
