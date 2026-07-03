@@ -1,173 +1,407 @@
 // src/components/ProductScanner.jsx
-import React, { useState, useEffect } from 'react';
-import { Search, Loader2, Sparkles, X, ShieldCheck, AlertTriangle, AlertOctagon } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { BrowserMultiFormatReader } from '@zxing/browser';
+import { X, Camera, Loader2, Scan, CheckCircle2, AlertCircle, Search } from 'lucide-react';
 
-export default function ProductScanner() {
-    const [inputValue, setInputValue] = useState('');
+const ProductScanner = ({ onClose, onScanComplete }) => {
+    // Camera states
     const [scanning, setScanning] = useState(false);
+    const [loading, setLoading] = useState(false);
+    const [result, setResult] = useState(null);
+    const [error, setError] = useState(null);
+    const videoRef = useRef(null);
+    const readerRef = useRef(null);
+
+    // Manual search states
+    const [query, setQuery] = useState('');
+    const [searchLoading, setSearchLoading] = useState(false);
     const [toast, setToast] = useState(null);
 
-    useEffect(() => {
-        if (toast) {
-            const timer = setTimeout(() => setToast(null), 20000); // 20 seconds duration
-            return () => clearTimeout(timer);
-        }
-    }, [toast]);
-
-    const handleProductSubmit = async (e) => {
-        e.preventDefault();
-        if (!inputValue.trim()) return;
-
-        setScanning(true);
-        setToast(null);
-
+    // ========== API CONSUMPTION ENGINE ==========
+    const sendPayloadToBackend = async (payloadData, manualName = null) => {
         try {
             const token = localStorage.getItem('token');
-            const response = await fetch('http://127.0.0.1:8000/api/scanner/ingest/', {
+            const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
+            
+            const bodyPayload = {
+                qr_payload: payloadData
+            };
+            if (manualName) {
+                bodyPayload.product_name = manualName;
+            }
+
+            const response = await fetch(`${baseUrl}/api/scanner/ingest/`, {
                 method: 'POST',
                 headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({ qr_payload: inputValue.trim() })
+                body: JSON.stringify(bodyPayload)
             });
-
-            const data = await response.json();
-
+            
+            const resultData = await response.json();
+            
             if (response.ok) {
-                setToast({
-                    success: true,
-                    title: data.product_name || "Extracted Item",
-                    footprint: data.calculated_footprint_kg,
-                    cost: data.offset_cost_kes,
-                    tier: data.advisory_status?.tier || "GREEN",
-                    message: data.advisory_status?.message || "Processed successfully."
-                });
-                setInputValue('');
+                setResult(resultData);
+                showToast(resultData);
+                if (onScanComplete) {
+                    onScanComplete(resultData);
+                }
+                setQuery('');
             } else {
-                setToast({ success: false, message: data.error || "Failed to parse metadata." });
+                setError(resultData.error || 'Failed to process product data.');
             }
         } catch (err) {
-            setToast({ success: false, message: "System offline. Check backend local port." });
+            setError('Network error processing product data.');
+            console.error('Ingestion error:', err);
         } finally {
+            setLoading(false);
+            setSearchLoading(false);
+        }
+    };
+
+    // ========== CAMERA SCANNING ==========
+    const handleScan = async (data) => {
+        if (data && !loading && scanning) {
+            setLoading(true);
+            setScanning(false);
+            
+            if (readerRef.current) {
+                await readerRef.current.reset();
+                readerRef.current = null;
+            }
+            await sendPayloadToBackend(data);
+        }
+    };
+
+    const startScanning = async () => {
+        try {
+            setError(null);
+            setResult(null);
+            setToast(null);
+            setScanning(true);
+            
+            const codeReader = new BrowserMultiFormatReader();
+            readerRef.current = codeReader;
+            
+            const videoInputDevices = await codeReader.listVideoInputDevices();
+            
+            const device = videoInputDevices.find(
+                dev => dev.label.toLowerCase().includes('back') || 
+                       dev.label.toLowerCase().includes('environment')
+            ) || videoInputDevices[0];
+            
+            if (!device) {
+                throw new Error('No camera found');
+            }
+            
+            await codeReader.decodeFromVideoDevice(
+                device.deviceId,
+                videoRef.current,
+                (resultInstance) => {
+                    if (resultInstance) {
+                        handleScan(resultInstance.getText());
+                    }
+                }
+            );
+        } catch (err) {
+            console.error('Scanner error:', err);
+            setError('Failed to access camera. Please check permissions.');
             setScanning(false);
         }
     };
 
-    const getTierConfigs = (tier) => {
-        switch (tier) {
-            case 'RED': 
-                return {
-                    border: 'border-red-500/30 shadow-red-950/50',
-                    bg: 'from-zinc-900/90 via-red-950/40 to-zinc-950/90',
-                    text: 'text-red-400',
-                    icon: <AlertOctagon className="w-5 h-5 text-red-400 animate-pulse" />
-                };
-            case 'YELLOW': 
-                return {
-                    border: 'border-amber-500/30 shadow-amber-950/50',
-                    bg: 'from-zinc-900/90 via-amber-950/30 to-zinc-950/90',
-                    text: 'text-amber-400',
-                    icon: <AlertTriangle className="w-5 h-5 text-amber-400" />
-                };
-            default: 
-                return {
-                    border: 'border-emerald-500/30 shadow-emerald-950/50',
-                    bg: 'from-zinc-900/90 via-emerald-950/30 to-zinc-950/90',
-                    text: 'text-emerald-400',
-                    icon: <ShieldCheck className="w-5 h-5 text-emerald-400" />
-                };
+    const stopScanning = async () => {
+        if (readerRef.current) {
+            await readerRef.current.reset();
+            readerRef.current = null;
         }
+        setScanning(false);
+        setToast(null);
+        onClose();
     };
 
-    const tierStyle = toast?.success ? getTierConfigs(toast.tier) : null;
+    // ========== MANUAL SEARCH ==========
+    const handleManualSearch = async (e) => {
+        e.preventDefault();
+        if (!query.trim()) return;
+
+        setSearchLoading(true);
+        setToast(null);
+        setError(null);
+
+        // Pass the raw string to both variables so Django falls back correctly
+        await sendPayloadToBackend(query.trim(), query.trim());
+    };
+
+    // ========== TOAST SYSTEM ==========
+    const showToast = (productData) => {
+        setToast({
+            type: 'success',
+            data: productData,
+            visible: true
+        });
+
+        // Auto-hide after 6 seconds
+        setTimeout(() => {
+            setToast(null);
+        }, 6000);
+    };
+
+    const handleAddToHistory = async (productData) => {
+        setToast(null);
+        console.log('✅ Synchronized history logging for:', productData.product_name);
+    };
+
+    const handleCancelToast = () => {
+        setToast(null);
+    };
+
+    // ========== CLEANUP ==========
+    useEffect(() => {
+        return () => {
+            if (readerRef.current) {
+                readerRef.current.reset();
+            }
+        };
+    }, []);
 
     return (
-        <div className="w-full">
-            {/* Minimalist Premium Capsule Input */}
-            <form onSubmit={handleProductSubmit} className="relative flex items-center bg-white/[0.03] backdrop-blur-md rounded-2xl border border-white/10 shadow-lg focus-within:border-emerald-500/40 focus-within:bg-white/[0.05] focus-within:ring-1 focus-within:ring-emerald-500/20 transition-all duration-300">
-                <div className="pl-4 text-white/30">
-                    <Search className="w-4 h-4" />
-                </div>
-                <input
-                    type="text"
-                    value={inputValue}
-                    onChange={(e) => setInputValue(e.target.value)}
-                    placeholder="Input or paste product payload..."
-                    className="w-full bg-transparent pl-3 pr-4 py-2.5 text-sm text-white placeholder-white/20 focus:outline-none"
-                    disabled={scanning}
-                />
-                {scanning && (
-                    <div className="absolute right-3">
-                        <Loader2 className="w-4 h-4 animate-spin text-emerald-400" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
+                {/* Header */}
+                <div className="flex items-center justify-between p-4 border-b border-gray-200">
+                    <div className="flex items-center gap-3">
+                        <div className="p-2 bg-green-50 rounded-xl">
+                            <Scan className="w-5 h-5 text-green-600" />
+                        </div>
+                        <div>
+                            <h3 className="text-lg font-bold text-gray-900">Product Scanner</h3>
+                            <p className="text-xs text-gray-500">Scan QR code or search product</p>
+                        </div>
                     </div>
-                )}
-            </form>
+                    <button
+                        onClick={stopScanning}
+                        className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                    >
+                        <X className="w-5 h-5 text-gray-500" />
+                    </button>
+                </div>
 
-            {/* Premium 20-Second Toast Dashboard Interface */}
-            {toast && (
-                <div className={`fixed bottom-6 right-6 z-50 max-w-sm w-full p-5 rounded-2xl border bg-gradient-to-br backdrop-blur-xl shadow-2xl transition-all duration-500 scale-100 ${toast.success ? `${tierStyle.border} ${tierStyle.bg}` : 'border-red-500/30 bg-zinc-950/95 shadow-red-950/20'}`}>
-                    
-                    {/* Header */}
-                    <div className="flex items-start justify-between">
-                        <div className="flex items-center space-x-3">
-                            {toast.success ? tierStyle.icon : <AlertOctagon className="w-5 h-5 text-red-400" />}
-                            <div>
-                                <h3 className="font-bold text-sm tracking-tight text-white">
-                                    {toast.success ? toast.title : "Scan Failure"}
-                                </h3>
-                                {toast.success && (
-                                    <span className={`inline-block text-[9px] font-extrabold tracking-widest px-1.5 py-0.5 rounded mt-0.5 bg-white/5 ${tierStyle.text}`}>
-                                        {toast.tier} STATUS
-                                    </span>
-                                )}
+                {/* Body */}
+                <div className="p-4 space-y-4">
+                    {/* Manual Search Input */}
+                    <form onSubmit={handleManualSearch} className="relative">
+                        <div className="relative">
+                            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                            <input
+                                type="text"
+                                value={query}
+                                onChange={(e) => setQuery(e.target.value)}
+                                placeholder="Search product or paste QR data..."
+                                className="w-full pl-10 pr-20 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500/20 focus:border-green-500 text-gray-900 text-sm transition-all"
+                                disabled={searchLoading || scanning}
+                            />
+                            <button
+                                type="submit"
+                                disabled={searchLoading || !query.trim() || scanning}
+                                className="absolute right-1 top-1/2 transform -translate-y-1/2 px-3 py-1 bg-green-600 hover:bg-green-700 disabled:bg-gray-300 text-white text-xs font-medium rounded-lg transition-colors"
+                            >
+                                {searchLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Search'}
+                            </button>
+                        </div>
+                    </form>
+
+                    {/* Divider */}
+                    <div className="flex items-center gap-3">
+                        <hr className="flex-1 border-gray-200" />
+                        <span className="text-xs text-gray-400 font-medium">OR</span>
+                        <hr className="flex-1 border-gray-200" />
+                    </div>
+
+                    {/* Camera Scanner Layout Trigger */}
+                    {!scanning && !result && !loading && (
+                        <div className="space-y-4">
+                            <div className="p-6 bg-gray-50 border-2 border-dashed border-gray-300 rounded-xl text-center">
+                                <Camera className="w-10 h-10 text-gray-400 mx-auto mb-2" />
+                                <p className="text-sm text-gray-600">Click below to open camera</p>
+                                <p className="text-xs text-gray-400">Hold camera up to a product QR code</p>
+                            </div>
+                            <button
+                                onClick={startScanning}
+                                className="w-full bg-green-600 hover:bg-green-700 text-white px-4 py-3 rounded-xl text-sm font-medium transition-colors shadow-sm hover:shadow-md"
+                            >
+                                <Camera className="w-4 h-4 inline mr-2" />
+                                Start Camera
+                            </button>
+                        </div>
+                    )}
+
+                    {scanning && (
+                        <div className="relative">
+                            <div className="overflow-hidden rounded-xl bg-black aspect-[4/3]">
+                                <video
+                                    ref={videoRef}
+                                    className="w-full h-full object-cover"
+                                    autoPlay
+                                    playsInline
+                                />
+                                <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
+                                    <div className="w-48 h-48 border-2 border-green-400 rounded-lg relative">
+                                        <div className="absolute top-0 left-0 w-6 h-6 border-t-2 border-l-2 border-green-400" />
+                                        <div className="absolute top-0 right-0 w-6 h-6 border-t-2 border-r-2 border-green-400" />
+                                        <div className="absolute bottom-0 left-0 w-6 h-6 border-b-2 border-l-2 border-green-400" />
+                                        <div className="absolute bottom-0 right-0 w-6 h-6 border-b-2 border-r-2 border-green-400" />
+                                    </div>
+                                </div>
+                                <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-black/60 px-4 py-2 rounded-lg">
+                                    <p className="text-xs text-white font-medium">Position QR code in frame</p>
+                                </div>
+                            </div>
+                            <button
+                                onClick={stopScanning}
+                                className="mt-4 w-full bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-3 rounded-xl text-sm font-medium transition-colors"
+                            >
+                                Cancel
+                            </button>
+                        </div>
+                    )}
+
+                    {loading && (
+                        <div className="p-8 text-center">
+                            <Loader2 className="w-8 h-8 text-green-600 animate-spin mx-auto mb-3" />
+                            <p className="text-sm text-gray-600">Processing environmental metrics...</p>
+                        </div>
+                    )}
+
+                    {error && (
+                        <div className="p-4 bg-red-50 border border-red-200 rounded-xl">
+                            <div className="flex items-start gap-3">
+                                <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+                                <div className="flex-1">
+                                    <p className="text-sm text-red-600">{error}</p>
+                                    <button
+                                        onClick={() => setError(null)}
+                                        className="mt-2 text-sm text-red-600 hover:text-red-700 font-medium"
+                                    >
+                                        Dismiss
+                                    </button>
+                                </div>
                             </div>
                         </div>
-                        <button onClick={() => setToast(null)} className="text-white/30 hover:text-white p-1 rounded-lg hover:bg-white/5 transition-colors">
-                            <X className="w-4 h-4" />
-                        </button>
-                    </div>
+                    )}
+                </div>
+            </div>
 
-                    {/* Main Content Body */}
-                    <div className="mt-4 space-y-3.5">
-                        {toast.success ? (
-                            <>
-                                {/* Metric Cards Row */}
-                                <div className="grid grid-cols-2 gap-2.5">
-                                    <div className="bg-white/[0.02] border border-white/5 rounded-xl p-2.5 text-left">
-                                        <p className="text-[10px] font-medium tracking-wider text-white/40 uppercase">Footprint</p>
-                                        <p className="text-lg font-black text-white mt-0.5">
-                                            {toast.footprint} <span className="text-xs font-normal text-white/40">kg</span>
+            {/* ========== TOAST NOTIFICATION CARD ========== */}
+            {toast && toast.visible && (
+                <div 
+                    className="fixed bottom-8 left-1/2 -translate-x-1/2 z-[9999] w-[92%] sm:w-full sm:max-w-2xl"
+                    style={{
+                        position: 'fixed',
+                        bottom: '2rem',
+                        left: '50%',
+                        transform: 'translateX(-50%)',
+                        zIndex: 9999
+                    }}
+                >
+                    <div className="bg-white rounded-2xl shadow-2xl border border-green-200 p-5">
+                        {toast.data ? (
+                            <div className="space-y-3">
+                                {/* Toast Card Header */}
+                                <div className="flex items-start justify-between">
+                                    <div className="flex items-center gap-3">
+                                        <div className="p-2 bg-green-100 rounded-xl">
+                                            <CheckCircle2 className="w-5 h-5 text-green-600" />
+                                        </div>
+                                        <div>
+                                            <h4 className="text-sm font-bold text-gray-900">
+                                                {toast.data.product_name || 'Item Analyzed'}
+                                            </h4>
+                                            <p className="text-xs text-gray-500">
+                                                Carbon Footprint: {toast.data.calculated_footprint_kg} kg CO₂
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <button
+                                        onClick={handleCancelToast}
+                                        className="text-gray-400 hover:text-gray-600"
+                                    >
+                                        <X className="w-4 h-4" />
+                                    </button>
+                                </div>
+
+                                {/* Dynamic Compliance Badge */}
+                                <div className={`p-2.5 rounded-xl text-xs font-medium ${
+                                    toast.data.advisory_status?.tier === 'GREEN' 
+                                        ? 'bg-green-50 text-green-700 border border-green-200'
+                                        : toast.data.advisory_status?.tier === 'YELLOW'
+                                        ? 'bg-yellow-50 text-yellow-700 border border-yellow-200'
+                                        : 'bg-red-50 text-red-700 border border-red-200'
+                                }`}>
+                                    {toast.data.advisory_status?.message || 'Product analyzed successfully'}
+                                </div>
+
+                                {/* Calculated Cost Metrics */}
+                                <div className="grid grid-cols-2 gap-2">
+                                    <div className="p-2 bg-gray-50 rounded-xl text-center">
+                                        <p className="text-[10px] text-gray-500">Footprint</p>
+                                        <p className="text-base font-bold text-gray-900">
+                                            {toast.data.calculated_footprint_kg} kg
                                         </p>
                                     </div>
-                                    <div className="bg-white/[0.02] border border-white/5 rounded-xl p-2.5 text-left">
-                                        <p className="text-[10px] font-medium tracking-wider text-white/40 uppercase">Offset Cost</p>
-                                        <p className="text-lg font-black text-emerald-400 mt-0.5">
-                                            {toast.cost} <span className="text-xs font-normal text-emerald-400/60">KES</span>
+                                    <div className="p-2 bg-gray-50 rounded-xl text-center">
+                                        <p className="text-[10px] text-gray-500">Offset Cost</p>
+                                        <p className="text-base font-bold text-green-600">
+                                            KES {toast.data.offset_cost_kes}
                                         </p>
                                     </div>
                                 </div>
-                                
-                                {/* Advisory Message block */}
-                                <div className="bg-white/[0.02] border border-white/5 rounded-xl p-3">
-                                    <p className="text-xs leading-relaxed text-white/70 font-medium">
-                                        {toast.message}
-                                    </p>
+
+                                {/* Form Action Buttons */}
+                                <div className="flex gap-2 pt-1">
+                                    <button
+                                        onClick={() => handleAddToHistory(toast.data)}
+                                        className="flex-1 px-3 py-2 bg-green-600 hover:bg-green-700 text-white rounded-xl text-xs font-medium transition-colors"
+                                    >
+                                        Add to History
+                                    </button>
+                                    <button
+                                        onClick={handleCancelToast}
+                                        className="flex-1 px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-xs font-medium transition-colors"
+                                    >
+                                        Cancel
+                                    </button>
                                 </div>
-                            </>
+
+                                {/* Countdown Progress bar */}
+                                <div className="w-full h-1 bg-gray-200 rounded-full overflow-hidden">
+                                    <div 
+                                        className="h-full bg-green-500 rounded-full animate-[shrink_6s_linear_forwards]"
+                                        style={{ 
+                                            transformOrigin: 'left',
+                                            width: '100%'
+                                        }}
+                                    />
+                                </div>
+                            </div>
                         ) : (
-                            <p className="text-xs text-red-300/90 font-medium bg-red-500/5 border border-red-500/10 rounded-xl p-3 leading-relaxed">
-                                {toast.message}
-                            </p>
+                            <div className="flex items-center gap-3">
+                                <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
+                                <p className="text-sm text-red-600 flex-1">{toast.message || 'Something went wrong'}</p>
+                                <button
+                                    onClick={handleCancelToast}
+                                    className="text-red-400 hover:text-red-600"
+                                >
+                                    <X className="w-4 h-4" />
+                                </button>
+                            </div>
                         )}
-                        
-                        {/* 20s Active Countdown Indicator bar */}
-                        <div className="w-full h-[2px] bg-white/5 rounded-full overflow-hidden">
-                            <div className="h-full bg-white/20 animate-[shrink_20s_linear_forwards]" style={{ transformOrigin: 'left' }} />
-                        </div>
                     </div>
                 </div>
             )}
         </div>
     );
-}
+};
+
+export default ProductScanner;

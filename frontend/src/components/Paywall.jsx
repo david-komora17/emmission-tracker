@@ -1,23 +1,90 @@
-// src/components/QuotaPaywallCard.jsx
-import React, { useState } from 'react';
-import { ShieldAlert, CreditCard, Sparkles, Loader2, CheckCircle2, X } from 'lucide-react';
+// src/components/Paywall.jsx
+import React, { useState, useEffect, useRef } from 'react';
+import { ShieldAlert, CreditCard, Loader2, CheckCircle2, X, AlertCircle } from 'lucide-react';
 
-const QuotaPaywallCard = ({ errorDetails, onClose, onPaymentSuccess }) => {
+const QuotaPaywallCard = ({ errorDetails, onClose, onPaymentSuccess, onRetryAI }) => {
     const [phoneNumber, setPhoneNumber] = useState('');
     const [loading, setLoading] = useState(false);
     const [paymentSent, setPaymentSent] = useState(false);
     const [localError, setLocalError] = useState(null);
     const [checkoutId, setCheckoutId] = useState(null);
+    const [pollingStatus, setPollingStatus] = useState('idle');
+    const [pollingError, setPollingError] = useState(null);
 
-    // Extract precise structured limits thrown by backend PremiumTierPermission
+    // Use a ref to track the polling interval across renders and handle unmounting safely
+    const intervalRef = useRef(null);
+
     const currentUsage = errorDetails?.current_usage || 5;
-    
     const rawAmount = errorDetails?.amount_payable;
     const amountPayable = (rawAmount !== undefined && rawAmount !== null && !isNaN(parseFloat(rawAmount))) 
         ? parseFloat(rawAmount).toFixed(2) 
         : "5.00";
+    const exceptionMessage = errorDetails?.error || "Subscribe to unlock unlimited capabilities.";
 
-    const exceptionMessage = errorDetails?.error || "Beyond this point you need to subscribe to unlock unlimited capabilities.";
+    // Clear any active polling interval on unmount
+    useEffect(() => {
+        return () => {
+            if (intervalRef.current) clearInterval(intervalRef.current);
+        };
+    }, []);
+
+    const startPolling = (targetCheckoutId) => {
+        // Clear any existing poll before starting a new one
+        if (intervalRef.current) clearInterval(intervalRef.current);
+
+        setPollingStatus('polling');
+        let attempts = 0;
+        const maxAttempts = 20;
+
+        const checkStatus = async () => {
+            try {
+                const token = localStorage.getItem('token');
+                const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
+                
+                const response = await fetch(`${baseUrl}/api/payments/status/${targetCheckoutId}/`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    if (data.status === 'completed') {
+                        clearInterval(intervalRef.current);
+                        setPollingStatus('completed');
+                        if (onPaymentSuccess) {
+                            onPaymentSuccess({ status: 'completed', checkout_id: targetCheckoutId, amount: data.amount });
+                        }
+                        if (onRetryAI) {
+                            setTimeout(() => onRetryAI(), 1000);
+                        }
+                    } else if (data.status === 'failed') {
+                        clearInterval(intervalRef.current);
+                        setPollingStatus('failed');
+                        setPollingError('Payment failed. Please try again.');
+                    }
+                } else {
+                    attempts++;
+                    if (attempts >= maxAttempts) {
+                        clearInterval(intervalRef.current);
+                        setPollingStatus('failed');
+                        setPollingError('Payment is taking longer than expected. Please check your M-Pesa.');
+                    }
+                }
+            } catch (error) {
+                console.error('Error checking payment status:', error);
+                attempts++;
+                if (attempts >= maxAttempts) {
+                    clearInterval(intervalRef.current);
+                    setPollingStatus('failed');
+                    setPollingError('Network error checking payment status.');
+                }
+            }
+        };
+
+        // Execute immediately, then poll every 3 seconds
+        checkStatus();
+        intervalRef.current = setInterval(checkStatus, 3000);
+    };
 
     const handleMpesaCheckout = async (e) => {
         e.preventDefault();
@@ -26,7 +93,6 @@ const QuotaPaywallCard = ({ errorDetails, onClose, onPaymentSuccess }) => {
 
         const token = localStorage.getItem('token');
         const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
-
         const payload = phoneNumber ? { phone_number: phoneNumber.trim() } : {};
 
         try {
@@ -42,104 +108,105 @@ const QuotaPaywallCard = ({ errorDetails, onClose, onPaymentSuccess }) => {
             const data = await response.json();
 
             if (response.ok) {
-                setCheckoutId(data.CheckoutRequestID);
+                const reqId = data.CheckoutRequestID;
+                setCheckoutId(reqId);
                 setPaymentSent(true);
+                localStorage.setItem('mpesa_checkout_id', reqId);
                 
-                // Store checkout ID for verification
-                localStorage.setItem('mpesa_checkout_id', data.CheckoutRequestID);
-                
-                // Notify parent component about payment initiation
                 if (onPaymentSuccess) {
-                    onPaymentSuccess({
-                        status: 'initiated',
-                        checkout_id: data.CheckoutRequestID,
-                        amount: data.amount_billed
-                    });
+                    onPaymentSuccess({ status: 'initiated', checkout_id: reqId, amount: data.amount_billed });
                 }
+                startPolling(reqId);
             } else {
-                setLocalError(data.error || "M-Pesa API gateway processing handshake failed.");
+                setLocalError(data.error || "M-Pesa payment initiation failed.");
             }
         } catch (err) {
             console.error(err);
-            setLocalError("Network connectivity timeout reaching Safaricom node endpoints.");
+            setLocalError("Network error. Please check your connection.");
         } finally {
             setLoading(false);
         }
     };
 
-    const handleClose = () => {
-        // If payment was sent but not confirmed, we could optionally check status
-        if (paymentSent) {
-            // You could add a callback to check payment status
-            // For now, just close the modal
+    const renderPollingStatus = () => {
+        switch (pollingStatus) {
+            case 'polling':
+                return (
+                    <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl mt-3">
+                        <p className="text-sm text-blue-600 font-medium flex items-center justify-center gap-2">
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            Processing your payment...
+                        </p>
+                    </div>
+                );
+            case 'completed':
+                return (
+                    <div className="p-3 bg-green-50 border border-green-200 rounded-xl mt-3">
+                        <p className="text-sm text-green-600 font-medium flex items-center justify-center gap-2">
+                            <CheckCircle2 className="w-4 h-4" />
+                            Payment successful! Redirecting...
+                        </p>
+                    </div>
+                );
+            case 'failed':
+                return (
+                    <div className="p-3 bg-red-50 border border-red-200 rounded-xl mt-3">
+                        <p className="text-sm text-red-600 font-medium flex items-center justify-center gap-2">
+                            <AlertCircle className="w-4 h-4" />
+                            {pollingError || 'Payment failed. Please try again.'}
+                        </p>
+                    </div>
+                );
+            default:
+                return null;
         }
-        onClose();
     };
 
     return (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-xl flex items-center justify-center p-4 z-50 animate-fadeIn">
-            <div className="w-full max-w-md bg-gradient-to-br from-zinc-900 via-emerald-950/30 to-zinc-900 border border-emerald-500/20 rounded-3xl p-6 shadow-2xl shadow-emerald-500/10 relative space-y-6">
-                
-                {/* Decorative Premium Glow Elements */}
-                <div className="absolute top-0 right-0 w-40 h-40 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
-                <div className="absolute bottom-0 left-0 w-40 h-40 bg-green-500/5 rounded-full blur-3xl pointer-events-none" />
-
-                {/* Close Button */}
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 relative">
                 <button
-                    onClick={handleClose}
-                    className="absolute top-4 right-4 p-1.5 text-white/40 hover:text-white/80 hover:bg-white/5 rounded-lg transition-all z-10"
+                    onClick={onClose}
+                    className="absolute top-4 right-4 p-2 text-gray-400 hover:text-gray-600 transition-colors"
+                    disabled={pollingStatus === 'polling'}
                 >
-                    <X className="w-4 h-4" />
+                    <X className="w-5 h-5" />
                 </button>
 
-                {/* Header */}
-                <div className="flex items-start space-x-4">
-                    <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-2xl shrink-0">
-                        <ShieldAlert className="w-6 h-6 text-amber-400" />
+                <div className="flex items-start gap-4 mb-6">
+                    <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl shrink-0">
+                        <ShieldAlert className="w-6 h-6 text-amber-600" />
                     </div>
                     <div>
-                        <h3 className="text-lg font-black tracking-tight text-white">
-                            Upgrade Required
-                        </h3>
-                        <p className="text-[10px] font-bold text-amber-400/60 uppercase tracking-widest">
+                        <h3 className="text-lg font-bold text-gray-900">Upgrade Required</h3>
+                        <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">
                             Free Tier Limit Reached
                         </p>
                     </div>
                 </div>
 
-                {/* Message Body */}
-                <div className="p-4 bg-white/5 border border-emerald-500/10 rounded-xl">
-                    <p className="text-xs font-medium text-white/70 leading-relaxed">
-                        {exceptionMessage}
-                    </p>
+                <div className="p-4 bg-gray-50 rounded-xl mb-6">
+                    <p className="text-sm text-gray-700">{exceptionMessage}</p>
                 </div>
 
-                {/* Metrics */}
-                <div className="grid grid-cols-2 gap-3">
-                    <div className="p-3 bg-white/5 border border-white/5 rounded-xl text-center">
-                        <span className="block text-[9px] font-bold text-white/40 uppercase tracking-widest">Queries Used</span>
-                        <span className="text-xl font-black text-white">
-                            {currentUsage}
-                            <span className="text-sm font-normal text-white/30"> / 5</span>
-                        </span>
+                <div className="grid grid-cols-2 gap-3 mb-6">
+                    <div className="p-3 bg-gray-50 rounded-xl text-center">
+                        <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Queries Used</p>
+                        <p className="text-xl font-bold text-gray-900">{currentUsage} <span className="text-sm font-normal text-gray-400">/ 5</span></p>
                     </div>
-                    <div className="p-3 bg-emerald-500/5 border border-emerald-500/20 rounded-xl text-center">
-                        <span className="block text-[9px] font-bold text-emerald-400/60 uppercase tracking-widest">One Month</span>
-                        <span className="text-xl font-black text-emerald-400">
-                            KES {amountPayable}
-                        </span>
+                    <div className="p-3 bg-green-50 rounded-xl text-center">
+                        <p className="text-xs font-medium text-green-600 uppercase tracking-wider">One Month</p>
+                        <p className="text-xl font-bold text-green-700">KES {amountPayable}</p>
                     </div>
                 </div>
 
-                <hr className="border-emerald-500/10" />
+                <hr className="border-gray-200 mb-6" />
 
-                {/* M-Pesa Form */}
                 {!paymentSent ? (
                     <form onSubmit={handleMpesaCheckout} className="space-y-4">
-                        <div className="space-y-1.5">
-                            <label className="block text-[10px] font-bold text-emerald-400/60 uppercase tracking-widest">
-                                M-Pesa Phone Number
-                                <span className="text-white/20 font-normal ml-1">(Optional)</span>
+                        <div>
+                            <label className="block text-xs font-medium text-gray-700 mb-1.5">
+                                M-Pesa Phone Number <span className="text-gray-400 font-normal ml-1">(Optional)</span>
                             </label>
                             <input 
                                 type="text"
@@ -147,75 +214,63 @@ const QuotaPaywallCard = ({ errorDetails, onClose, onPaymentSuccess }) => {
                                 value={phoneNumber}
                                 onChange={(e) => setPhoneNumber(e.target.value)}
                                 pattern="254[0-9]{9}"
-                                className="w-full p-3 bg-black/40 border border-emerald-500/10 rounded-xl focus:outline-none focus:border-emerald-500/40 focus:ring-1 focus:ring-emerald-500/20 text-sm text-white font-mono tracking-widest placeholder:text-white/20 transition-all"
+                                className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500/20 focus:border-green-500 text-sm transition-all"
                             />
-                            <p className="text-[9px] text-emerald-400/30 font-medium">
-                                Leave blank to use your registered phone number
-                            </p>
+                            <p className="text-xs text-gray-400 mt-1">Leave blank to use your registered number</p>
                         </div>
 
                         {localError && (
-                            <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl">
-                                <p className="text-red-300 text-xs font-medium flex items-center gap-2">
-                                    <span className="w-1.5 h-1.5 bg-red-400 rounded-full animate-pulse" />
-                                    {localError}
-                                </p>
+                            <div className="p-3 bg-red-50 border border-red-200 rounded-xl">
+                                <p className="text-sm text-red-600">{localError}</p>
                             </div>
                         )}
 
-                        <div className="flex gap-3 pt-2">
+                        <div className="flex gap-3">
                             <button
                                 type="button"
-                                onClick={handleClose}
-                                className="flex-1 bg-white/5 hover:bg-white/10 border border-white/10 text-white/60 hover:text-white p-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all"
+                                onClick={onClose}
+                                className="flex-1 px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-sm font-medium transition-colors"
                             >
                                 Cancel
                             </button>
                             <button
                                 type="submit"
                                 disabled={loading}
-                                className="flex-[2] bg-gradient-to-r from-emerald-600 to-green-500 hover:from-emerald-500 hover:to-green-400 disabled:from-emerald-800/50 disabled:to-green-800/50 disabled:cursor-not-allowed text-white p-3 rounded-xl text-xs font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-all duration-300 shadow-lg shadow-emerald-500/20 hover:shadow-emerald-500/40"
+                                className="flex-[2] px-4 py-2.5 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white rounded-xl text-sm font-medium flex items-center justify-center gap-2 transition-all shadow-sm hover:shadow-md"
                             >
                                 {loading ? (
                                     <>
                                         <Loader2 className="w-4 h-4 animate-spin" />
-                                        <span>Processing...</span>
+                                        Processing...
                                     </>
                                 ) : (
                                     <>
                                         <CreditCard className="w-4 h-4" />
-                                        <span>Pay & Upgrade</span>
+                                        Pay & Upgrade
                                     </>
                                 )}
                             </button>
                         </div>
                     </form>
                 ) : (
-                    // Payment Sent Success State
                     <div className="space-y-4">
-                        <div className="p-6 bg-emerald-500/5 border border-emerald-500/20 rounded-2xl text-center space-y-3">
-                            <div className="w-16 h-16 bg-emerald-500/10 rounded-full flex items-center justify-center mx-auto border border-emerald-500/20">
-                                <CheckCircle2 className="w-8 h-8 text-emerald-400" />
-                            </div>
-                            <div>
-                                <h4 className="text-sm font-bold text-white">STK Push Sent!</h4>
-                                <p className="text-xs text-emerald-400/60 mt-1 font-medium">
-                                    Check your phone for the M-Pesa prompt
+                        <div className="p-6 bg-green-50 border border-green-200 rounded-xl text-center">
+                            <CheckCircle2 className="w-12 h-12 text-green-600 mx-auto mb-3" />
+                            <h4 className="text-lg font-bold text-gray-900">STK Push Sent!</h4>
+                            <p className="text-sm text-gray-600 mt-1">Check your phone for the M-Pesa prompt</p>
+                            {checkoutId && (
+                                <p className="text-xs text-gray-400 mt-2 font-mono bg-white/50 inline-block px-2 py-0.5 rounded border border-green-100">
+                                    Ref: {checkoutId.slice(0, 16)}...
                                 </p>
-                                {checkoutId && (
-                                    <p className="text-[9px] text-emerald-400/30 mt-2 font-mono">
-                                        Ref: {checkoutId.slice(0, 12)}...
-                                    </p>
-                                )}
-                            </div>
-                            <div className="pt-2">
-                                <button
-                                    onClick={handleClose}
-                                    className="w-full bg-white/5 hover:bg-white/10 text-white text-xs font-bold uppercase tracking-wider p-3 rounded-xl border border-white/10 transition-all"
-                                >
-                                    Done
-                                </button>
-                            </div>
+                            )}
+                            {renderPollingStatus()}
+                            <button
+                                onClick={onClose}
+                                className="w-full mt-4 px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-sm font-medium transition-colors"
+                                disabled={pollingStatus === 'polling'}
+                            >
+                                {pollingStatus === 'polling' ? 'Waiting for M-Pesa Pin...' : 'Done'}
+                            </button>
                         </div>
                     </div>
                 )}

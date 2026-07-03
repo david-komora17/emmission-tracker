@@ -1,35 +1,35 @@
-@import "tailwindcss";
-/* Custom scrollbar for emerald theme */
-.custom-scrollbar::-webkit-scrollbar {
-    width: 3px;
+@import "tailwindcss";/* src/index.css - Add this animation */
+/* src/index.css - Add these animations */
+
+@keyframes slideUp {
+    from {
+        opacity: 0;
+        transform: translateX(-50%) translateY(30px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0);
+    }
 }
 
-.custom-scrollbar::-webkit-scrollbar-track {
-    background: rgba(16, 185, 129, 0.05);
-    border-radius: 10px;
-}
-
-.custom-scrollbar::-webkit-scrollbar-thumb {
-    background: rgba(16, 185, 129, 0.3);
-    border-radius: 10px;
-}
-
-.custom-scrollbar::-webkit-scrollbar-thumb:hover {
-    background: rgba(16, 185, 129, 0.5);
-}
-
-/* Animation for shrink bar */
 @keyframes shrink {
-    from { width: 100%; }
-    to { width: 0%; }
+    from {
+        width: 100%;
+    }
+    to {
+        width: 0%;
+    }
 }
 
-/* Fade in animation */
-@keyframes fadeIn {
-    from { opacity: 0; transform: scale(0.95); }
-    to { opacity: 1; transform: scale(1); }
+.animate-slide-up {
+    animation: slideUp 0.4s ease-out forwards;
 }
 
-.animate-fadeIn {
-    animation: fadeIn 0.2s ease-out;
+.animate-shrink {
+    animation: shrink 6s linear forwards;
+}
+
+@keyframes shrink {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
 }

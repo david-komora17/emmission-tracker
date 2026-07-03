@@ -1,3 +1,4 @@
+# emmissions_app/permissions.py
 from rest_framework import permissions
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.exceptions import Throttled
@@ -7,7 +8,6 @@ class IsOwner(permissions.BasePermission):
     """
     Grant access strictly to system administrators. 
     """
-
     def has_permission(self, request, view):
         return request.user and request.user.is_authenticated and request.user.is_staff
     
@@ -19,8 +19,7 @@ class IsHighestPaidTier(permissions.BasePermission):
         if not request.user or not request.user.is_authenticated:
             return False 
         
-        # Admins bypass paywalls, otherwise check premium boolean field
-        return request.user.is_staff or getattr(request.user.profile, 'is_premium', False)
+        return request.user.is_staff or getattr(request.user.userprofile, 'is_premium', False)
     
 class PremiumTierPermission(IsAuthenticated):
     """
@@ -52,7 +51,7 @@ class PremiumTierPermission(IsAuthenticated):
                         "error": "Beyond this point you need to subscribe to unlock unlimited capabilities.",
                         "code": "TRIAL_EXPIRED",
                         "current_usage": profile.ai_query_count,
-                        "amount_payable": 5.00  # Matched to your exact payment specification
+                        "amount_payable": "kes 5.00"
                     }
                 )
             return True

@@ -1,30 +1,36 @@
-# your_app/views.py
+# emmissions_app/views.py
 import os
+import logging
+import io
+import re
 import requests
+import base64
 import json
 from groq import Groq
 from pypdf import PdfReader
+from pyzbar.pyzbar import decode
+from PIL import Image
+
 
 from django.contrib.auth.models import User
 from django.db import transaction
-from django.db.models import Sum
 from django.utils import timezone
 
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework import status, permissions
-from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.permissions import IsAuthenticated, AllowAny, BasePermission
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
-from rest_framework.throttling import UserRateThrottle
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework.exceptions import Throttled
 
 # Import local modules cleanly
-from .models import UserProfile, ActivityLog, SystemComplaint, RouteSearchLog
+from .models import UserProfile, ActivityLog, SystemComplaint, PaymentLog
 from .permissions import IsOwner, IsHighestPaidTier, PremiumTierPermission
 from .utils import generate_mpesa_credentials, get_mpesa_callback_url
+
+logger = logging.getLogger(__name__)
 
 # Import the updated serializers repository map
 from .serializers import (
@@ -33,7 +39,7 @@ from .serializers import (
     CustomRegisterSerializer
 )
         
-class IsSystemAdmin(permissions.BasePermission):
+class IsSystemAdmin(BasePermission):
     """
     Custom permission layer ensuring only staff accounts can read aggregated feedback data.
     """
@@ -41,9 +47,7 @@ class IsSystemAdmin(permissions.BasePermission):
         return bool(request.user and request.user.is_authenticated and request.user.is_staff)
 
 
-# -------------------------------------------------------------------
 # Authentication Views (Login & Register Lifecycle)
-# -------------------------------------------------------------------
 class CustomLoginView(TokenObtainPairView):
     """
     The Login Endpoint. 
@@ -92,6 +96,7 @@ class CustomRegisterView(APIView):
             "refresh_token": str(refresh),
             "role": "ADMIN" if user.is_staff else "USER"
         }, status=status.HTTP_201_CREATED)
+
 
 class PremiumAIActionView(APIView):
     permission_classes = [PremiumTierPermission]
@@ -185,7 +190,6 @@ class PremiumAIActionView(APIView):
                 total_distance = float(clean_json_data.get("estimated_distance_km", 0.0))
                 
                 # Dynamic Carbon Calculation logic
-                # Tracking route reductions as negative values matching your data flow rules
                 net_emissions = float(clean_json_data.get("total_carbon_saved_kg", 0.0)) * -1.0 
 
                 # Commit to unified database layout
@@ -205,7 +209,13 @@ class PremiumAIActionView(APIView):
             except Exception as e:
                 return Response({"error": f"AI Engine Handshake Failed: {str(e)}"}, status=status.HTTP_502_BAD_GATEWAY)
 
+#  UPDATED ComplaintFunnelView with PATCH method for Admin
 class ComplaintFunnelView(APIView):
+    """
+    Unified Complaint Management View
+    Handles: GET (list), POST (create), PATCH (update status), 
+    POST (respond), DELETE (remove)
+    """
     permission_classes = [IsAuthenticated]
 
     def get_permissions(self):
@@ -213,12 +223,20 @@ class ComplaintFunnelView(APIView):
             return [IsSystemAdmin()]
         return [IsAuthenticated()]
 
+    # GET: List all complaints (Admin only)
     def get(self, request):
         complaints = SystemComplaint.objects.all()
         serializer = SystemComplaintSerializer(complaints, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
     
+    # POST: Create new complaint (Authenticated users)
     def post(self, request):
+        # Check if this is a response submission
+        if 'response' in request.data and request.user.is_staff:
+            complaint_id = request.data.get('complaint_id')
+            return self._handle_response(request, complaint_id)
+        
+        # Regular complaint submission
         serializer = SystemComplaintSerializer(data=request.data)
         if serializer.is_valid():
             serializer.save(user=request.user)
@@ -227,21 +245,123 @@ class ComplaintFunnelView(APIView):
                 status=status.HTTP_201_CREATED
             )
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
+    
+    # PATCH: Update complaint status (Admin only)
+    def patch(self, request, complaint_id):
+        try:
+            complaint = SystemComplaint.objects.get(id=complaint_id)
+        except SystemComplaint.DoesNotExist:
+            return Response({"error": "Complaint not found"}, status=status.HTTP_404_NOT_FOUND)
+        
+        # Only admins can update status
+        if not request.user.is_staff:
+            return Response({"error": "Permission denied. Admin access required."}, status=status.HTTP_403_FORBIDDEN)
+        
+        new_status = request.data.get('status')
+        if new_status not in ['pending', 'addressed', 'in_progress']:
+            return Response({"error": "Invalid status. Must be 'pending', 'addressed', or 'in_progress'."}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Store old status for notification
+        old_status = complaint.status
+        complaint.status = new_status
+        complaint.save()
+        
+        # Return full complaint data for frontend
+        serializer = SystemComplaintSerializer(complaint)
+        
+        return Response({
+            "message": f"Complaint status updated from '{old_status}' to '{new_status}'",
+            "complaint": serializer.data
+        }, status=status.HTTP_200_OK)
+    
+    # DELETE: Remove complaint (Admin only, only addressed complaints)
+    def delete(self, request, complaint_id):
+        try:
+            complaint = SystemComplaint.objects.get(id=complaint_id)
+        except SystemComplaint.DoesNotExist:
+            return Response({"error": "Complaint not found"}, status=status.HTTP_404_NOT_FOUND)
+        
+        # Only admins can delete
+        if not request.user.is_staff:
+            return Response({"error": "Permission denied. Admin access required."}, status=status.HTTP_403_FORBIDDEN)
+        
+        # Only allow deletion of addressed complaints
+        if complaint.status != 'addressed':
+            return Response(
+                {"error": "Only addressed complaints can be deleted. Current status: '{}'".format(complaint.status)}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Store complaint info for response
+        complaint_info = {
+            'id': complaint.id,
+            'subject': complaint.subject,
+            'username': complaint.user.username
+        }
+        
+        complaint.delete()
+        
+        return Response({
+            "message": f"Complaint #{complaint_info['id']} deleted successfully",
+            "deleted_complaint": complaint_info
+        }, status=status.HTTP_200_OK)
+    
+    # Helper: Handle response to complaint (Admin only)
+    def _handle_response(self, request, complaint_id):
+        try:
+            complaint = SystemComplaint.objects.get(id=complaint_id)
+        except SystemComplaint.DoesNotExist:
+            return Response({"error": "Complaint not found"}, status=status.HTTP_404_NOT_FOUND)
+        
+        # Only admins can respond
+        if not request.user.is_staff:
+            return Response({"error": "Permission denied. Admin access required."}, status=status.HTTP_403_FORBIDDEN)
+        
+        response_text = request.data.get('response')
+        if not response_text or not response_text.strip():
+            return Response({"error": "Response text is required"}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Store response
+        complaint.response = response_text.strip()
+        complaint.save()
+        
+        # Optionally auto-update status to 'addressed' when responding
+        if complaint.status != 'addressed':
+            old_status = complaint.status
+            complaint.status = 'addressed'
+            complaint.save()
+            status_message = f" Status auto-updated from '{old_status}' to 'addressed'."
+        else:
+            status_message = ""
+        
+        return Response({
+            "message": f"Response sent successfully to complaint #{complaint.id}.{status_message}",
+            "complaint": {
+                "id": complaint.id,
+                "subject": complaint.subject,
+                "status": complaint.status,
+                "response": complaint.response,
+                "username": complaint.user.username
+            }
+        }, status=status.HTTP_200_OK)
+    
+# COMPLETELY REWRITTEN MpesaCheckoutView with PaymentLog Integration
 class MpesaCheckoutView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
         user = request.user
         payload_phone = request.data.get('phone_number')
-
-        # Enforce your precise payment business logic rule
-        amount = 5.00 
+        
+        # Determine payment type (default to subscription)
+        payment_type = request.data.get('payment_type', 'subscription')
+        amount = 5.00  # Default amount for subscription
 
         try:
             profile, created = UserProfile.objects.get_or_create(user=user)
             saved_phone = profile.phone_number
         except Exception as e:
+            logger.error(f"UserProfile retrieval failed for user {user.username}: {str(e)}")
             return Response({"error": f"UserProfile retrieval failed: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         final_phone = payload_phone or saved_phone
@@ -296,34 +416,87 @@ class MpesaCheckoutView(APIView):
             response = requests.post(url, json=payload, headers=headers, timeout=10)
 
             if response.status_code != 200:
+                logger.error(f"M-Pesa gateway error for user {user.username}: {response.status_code}")
                 return Response({
                     "error": "Safaricom gateway returned an unexpected status error.",
                     "status_code": response.status_code
                 }, status=status.HTTP_400_BAD_REQUEST)
             
             response_data = response.json()
+            
             if response_data.get("ResponseCode") == "0":
                 checkout_id = response_data.get("CheckoutRequestID")
                 
-                # Bind transaction token token metadata to profile row for webhook tracking matches
+                # CREATE PAYMENT LOG - PENDING
+                payment_log = PaymentLog.objects.create(
+                    user=user,
+                    payment_type='subscription',
+                    amount=amount,
+                    mpesa_checkout_id=checkout_id,
+                    status='pending',
+                    metadata={
+                        'phone_number': final_phone,
+                        'payment_initiated_from': request.META.get('HTTP_USER_AGENT', 'unknown'),
+                        'ip_address': request.META.get('REMOTE_ADDR', 'unknown')
+                    }
+                )
+                
+                logger.info(f"PaymentLog created with ID {payment_log.id} for user {user.username}")
+                
+                # Bind transaction token to profile for webhook tracking
                 profile.mpesa_checkout_request_id = checkout_id
                 profile.save()
+
+                # Log the initiation in ActivityLog
+                ActivityLog.objects.create(
+                    user=user,
+                    category='payment',
+                    activity_type='M-Pesa Payment Initiated',
+                    input_value=amount,
+                    unit='KES',
+                    co2e_kg=0.0
+                )
 
                 return Response({
                     "message": "STK Push initiated. Verify on handset.",
                     "CheckoutRequestID": checkout_id,
-                    "amount_billed": amount
+                    "amount_billed": amount,
+                    "payment_id": payment_log.id
                 }, status=status.HTTP_200_OK)
             else:
+                # Payment failed at M-Pesa gateway
+                error_msg = response_data.get("ResponseDescription", "Gateway rejected request.")
+                logger.error(f"M-Pesa STK push failed for user {user.username}: {error_msg}")
+                
+                # CREATE PAYMENT LOG - FAILED
+                PaymentLog.objects.create(
+                    user=user,
+                    payment_type='subscription',
+                    amount=amount,
+                    mpesa_checkout_id='',
+                    status='failed',
+                    metadata={
+                        'error': error_msg,
+                        'response_code': response_data.get("ResponseCode")
+                    }
+                )
+                
                 return Response(
-                    {"error": response_data.get("ResponseDescription", "Gateway rejected request.")}, 
+                    {"error": error_msg}, 
                     status=status.HTTP_400_BAD_REQUEST
                 )
 
+        except requests.exceptions.Timeout:
+            logger.error(f"M-Pesa gateway timeout for user {user.username}")
+            return Response({"error": "M-Pesa gateway timeout. Please try again."}, status=status.HTTP_504_GATEWAY_TIMEOUT)
+        except requests.exceptions.ConnectionError:
+            logger.error(f"M-Pesa connection error for user {user.username}")
+            return Response({"error": "Network error connecting to M-Pesa. Please check your internet connection."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
         except Exception as e:
+            logger.error(f"M-Pesa checkout error for user {user.username}: {str(e)}")
             return Response({"error": f"Gateway connection failure: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-
+# COMPLETELY REWRITTEN MpesaCarbonmarkCallbackView with PaymentLog Updates
 class MpesaCarbonmarkCallbackView(APIView):
     permission_classes = [AllowAny]
 
@@ -332,86 +505,71 @@ class MpesaCarbonmarkCallbackView(APIView):
         stk_callback = data.get("Body", {}).get("stkCallback", {})
         result_code = stk_callback.get("ResultCode")
         checkout_request_id = stk_callback.get("CheckoutRequestID")
+        result_desc = stk_callback.get("ResultDesc", "Unknown")
         
-        # Safaricom expects a clean acknowledgment shape, even if we drop the execution internally
+        # Safaricom expects a clean acknowledgment
         safaricom_success_ack = {
             "ResponseCode": "0",
             "ResponseDescription": "success"
         }
 
-        # If the user cancelled or the payment failed, acknowledge safely and exit
-        if result_code != 0:
+        logger.info(f"M-Pesa callback received for checkout ID: {checkout_request_id}, result: {result_code}")
+
+        # FIND THE PAYMENT LOG BY CHECKOUT ID
+        try:
+            payment_log = PaymentLog.objects.get(mpesa_checkout_id=checkout_request_id)
+        except PaymentLog.DoesNotExist:
+            logger.warning(f"PaymentLog not found for checkout ID: {checkout_request_id}")
             return Response(safaricom_success_ack, status=status.HTTP_200_OK)
 
-        user_id = request.GET.get("user_id")
-        offset_kg = request.GET.get("offset_kg", "10")
-        is_premium_upgrade = request.GET.get("upgrade") == "true"
+        # UPDATE PAYMENT LOG BASED ON RESULT
+        if result_code != 0:
+            # Payment failed or was cancelled
+            payment_log.status = 'failed'
+            payment_log.completed_at = timezone.now()
+            payment_log.metadata['error'] = result_desc
+            payment_log.metadata['result_code'] = result_code
+            payment_log.save()
+            
+            logger.warning(f"Payment failed for user {payment_log.user.username}: {result_desc}")
+            return Response(safaricom_success_ack, status=status.HTTP_200_OK)
+
+        # PAYMENT SUCCESSFUL - Update PaymentLog
+        payment_log.status = 'completed'
+        payment_log.completed_at = timezone.now()
+        payment_log.save()
+        
+        logger.info(f"Payment successful for user {payment_log.user.username}")
 
         try:
-            profile = None
-            user = None
+            user = payment_log.user
+            profile = user.userprofile
 
-            if user_id:
-                # Query route path A: Fall back on classic URL routing parameters
-                try:
-                    user = User.objects.get(id=user_id)
-                    profile = user.userprofile
-                except User.DoesNotExist:
-                    return Response(safaricom_success_ack, status=status.HTTP_200_OK)
-            elif checkout_request_id:
-                # Query route path B: Fall back on checking cached STK tokens across database indexes
-                try:
-                    profile = UserProfile.objects.get(mpesa_checkout_request_id=checkout_request_id)
-                    user = profile.user
-                except UserProfile.DoesNotExist:
-                    return Response(safaricom_success_ack, status=status.HTTP_200_OK)
+            # ACTIVATE PREMIUM SUBSCRIPTION
+            profile.activate_premium_one_month()
+            
+            # Clear the checkout ID from profile
+            profile.mpesa_checkout_request_id = None
+            profile.save()
+            
+            # Log the successful payment in ActivityLog
+            ActivityLog.objects.create(
+                user=user,
+                category='payment',
+                activity_type='Premium Subscription Activated',
+                input_value=float(payment_log.amount),
+                unit='KES',
+                co2e_kg=0.0
+            )
+            
+            logger.info(f"Premium activated for user {user.username} until {profile.premium_expiry_date}")
 
-            # Security Guard: If no valid profile could be resolved, acknowledge and drop execution
-            if not profile:
-                return Response(safaricom_success_ack, status=status.HTTP_200_OK)
-
-            if is_premium_upgrade or (profile.mpesa_checkout_request_id == checkout_request_id and checkout_request_id is not None):
-                
-                # Execute the 30-day timeline tracking state method safely
-                profile.activate_premium_one_month()
-                
-                # Flush the transaction token tracker to cleanly free up model rows
-                profile.mpesa_checkout_request_id = None
-                profile.save()
-                
-                return Response(safaricom_success_ack, status=status.HTTP_200_OK)
-
-            # 3. CLASSIC CARBONMARK API GATEWAY EXECUTION PATH
-            if not profile.phone_number:
-                return Response(safaricom_success_ack, status=status.HTTP_200_OK)
-            
-            carbonmark_url = "https://api.carbonmark.com/v1/retirements"
-            headers = {
-                "Authorization": f"Bearer {os.environ.get('CARBONMARK_API_KEY')}",
-                "Content-Type": "application/json"
-            }
-            
-            payload = {
-                "quantity": float(offset_kg) / 1000.0,
-                "project_id": "VCS-981",
-                "beneficiary_address": user.email,
-                "retirement_reason": f"Climatiqa Target Clearance for user {user.username}"
-            }
-            
-            response = requests.post(carbonmark_url, json=payload, headers=headers, timeout=10)
-            
-            if response.status_code in [200, 201]:
-                profile.current_month_accumulated_co2_kg = max(0.0, profile.current_month_accumulated_co2_kg - float(offset_kg))
-                profile.save()
-                return Response(safaricom_success_ack, status=status.HTTP_200_OK)
-            
-            # Even if Carbonmark returns a bad status, tell Safaricom 200 OK so it stops hammering your endpoint
-            return Response(safaricom_success_ack, status=status.HTTP_200_OK)
-                
         except Exception as e:
-            # Fatal structural crashes return an explicit 500 error log block
-            return Response({"error": f"Internal mapping error: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-        
+            logger.error(f"Error processing successful payment for user {payment_log.user.username}: {str(e)}")
+            # Still return 200 to Safaricom even if our processing fails
+
+        return Response(safaricom_success_ack, status=status.HTTP_200_OK)
+
 class ProductScannerIngestionView(APIView):
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
@@ -420,6 +578,38 @@ class ProductScannerIngestionView(APIView):
         user = request.user
         raw_text_content = ""
 
+        # Step 1: Text extraction from files or payload
+        if 'file' in request.FILES:
+            pdf_file = request.FILES['file']
+            try:
+                reader = PdfReader(pdf_file)
+                for page in reader.pages:
+                    raw_text_content += page.extract_text() or ""
+            except Exception as e:
+                return Response({"error": f"PDF extraction failed: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
+        # NEW: Handle QR image upload
+        elif 'qr_image' in request.FILES:
+            try:
+                image_file = request.FILES['qr_image']
+                image = Image.open(io.BytesIO(image_file.read()))
+                decoded_objects = decode(image)
+                
+                if decoded_objects:
+                    raw_text_content = decoded_objects[0].data.decode('utf-8')
+                else:
+                    return Response(
+                        {"error": "No QR code found in image. Please ensure the image contains a clear QR code."},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+            except Exception as e:
+                return Response(
+                    {"error": f"QR image processing failed: {str(e)}"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        else:
+            raw_text_content = request.data.get("qr_payload") or request.data.get("product_name")
+
+        # Step 1: Text extraction from files or payload
         if 'file' in request.FILES:
             pdf_file = request.FILES['file']
             try:
@@ -435,30 +625,51 @@ class ProductScannerIngestionView(APIView):
             return Response({"error": "No product metadata or file provided."}, status=status.HTTP_400_BAD_REQUEST)
 
         product_name = request.data.get("product_name")
-        estimated_co2 = None
+        weight_kg = 1.0
+        search_query = "materials"
+        is_structured_qr = False
+
+        # If the extracted QR payload is a pre-structured JSON string, parse it directly
+        if isinstance(raw_text_content, str) and raw_text_content.strip().startswith("{"):
+            try:
+                structured_data = json.loads(raw_text_content)
+                product_name = product_name or structured_data.get("product_name")
+                weight_kg = float(structured_data.get("weight_kg", 1.0))
+                search_query = structured_data.get("search_query") or product_name or "materials"
+                is_structured_qr = True
+            except (ValueError, TypeError, json.JSONDecodeError):
+                pass
+        
+        estimated_co2 = 0.0
         estimated_override = request.data.get("estimated_co2_kg")
 
         if estimated_override is not None:
             try:
                 estimated_co2 = float(estimated_override)
-            except Exception:
+            except ValueError:
                 return Response({"error": "estimated_co2_kg must be a numeric value."}, status=status.HTTP_400_BAD_REQUEST)
             product_name = product_name or "Unknown Item"
         else:
-            api_key = os.environ.get("GROQ_API_KEY")
-            if not api_key:
+            groq_key = os.environ.get("GROQ_API_KEY")
+            if not groq_key:
                 return Response({"error": "AI Engine Offline."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
-            client = Groq(api_key=api_key)
+            groq_client = Groq(api_key=groq_key)
+            
             system_instruction = (
-                "You are an eco-compliance processor. Analyze the input text and extract the item name. "
-                "Estimate its carbon footprint lifecycle weight in Kilograms of CO2e. "
-                "Return a strict JSON object with keys: 'product_name' and 'estimated_co2_kg'. "
-                "Do not include conversational text or formatting outside the JSON."
+                "You are an eco-compliance text parser. Extract the specific item name "
+                "and any mass/weight value explicitly stated in the text. If no weight is found, "
+                "provide a realistic fallback weight in kilograms based on standard items.\n\n"
+                "Additionally, output a single 'search_query' keyword or phrase that represents the material "
+                "type broadly (e.g., 'concrete', 'steel', 'plastic', 'wood', 'paper', 'glass', 'electronics') "
+                "to assist in a database lookup.\n\n"
+                "Return a strict JSON object with keys: 'clean_product_name' (string), "
+                "'weight_kg' (float), and 'search_query' (string). "
+                "Do not include conversational text or markdown code blocks."
             )
 
             try:
-                completion = client.chat.completions.create(
+                completion = groq_client.chat.completions.create(
                     model="llama-3.1-8b-instant",
                     messages=[
                         {"role": "system", "content": system_instruction},
@@ -467,26 +678,79 @@ class ProductScannerIngestionView(APIView):
                     temperature=0.1,
                     response_format={"type": "json_object"}
                 )
-                content = completion.choices[0].message.content
-
-                if isinstance(content, dict):
-                    extracted = content
-                else:
-                    try:
-                        extracted = json.loads(content)
-                    except Exception:
-                        start = str(content).find('{')
-                        end = str(content).rfind('}')
-                        if start != -1 and end != -1 and end > start:
-                            extracted = json.loads(str(content)[start:end+1])
-                        else:
-                            raise ValueError("Unable to parse AI response as JSON")
-
-                product_name = product_name or extracted.get("product_name", "Unknown Item")
-                estimated_co2 = float(extracted.get("estimated_co2_kg", 0.0))
+                parsed_json = json.loads(completion.choices[0].message.content)
+                product_name = product_name or parsed_json.get("clean_product_name", "Unknown Item")
+                weight_kg = float(parsed_json.get("weight_kg", 1.0))
+                search_query = parsed_json.get("search_query", "materials")
             except Exception as e:
-                return Response({"error": f"AI Parsing failure: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                return Response({"error": f"AI text parsing failure: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+            # Step 2: Establish base communication configurations
+            climatiq_url = os.environ.get("CLIMATIQ_API_URL", "https://api.climatiq.io").rstrip('/')
+            climatiq_key = os.environ.get("CLIMATIQ_API_KEY")
+
+            if not climatiq_key:
+                return Response({"error": "Climatiq configuration missing."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+            headers = {
+                "Authorization": f"Bearer {climatiq_key}",
+                "Content-Type": "application/json"
+            }
+
+            # Step 3: Run search query with data_version parameter included
+            search_params = {
+                "query": search_query,
+                "unit_type": "weight",
+                "data_version": "^33",
+                "results_per_page": 1
+            }
+
+            try:
+                search_response = requests.get(
+                    f"{climatiq_url}/data/v1/search",
+                    params=search_params,
+                    headers=headers,
+                    timeout=10
+                )
+
+                if search_response.status_code != 200:
+                    return Response({"error": f"Climatiq database query failure: {search_response.text}"}, status=status.HTTP_502_BAD_GATEWAY)
+
+                search_results = search_response.json().get("results", [])
+                
+                if not search_results:
+                    activity_id = "materials-type_materials_unspecified" 
+                else:
+                    activity_id = search_results[0].get("activity_id")
+
+                # Step 4: Run estimation calculations
+                estimate_payload = {
+                    "emission_factor": {
+                        "activity_id": activity_id,
+                        "data_version": "^33"
+                    },
+                    "parameters": {
+                        "weight": weight_kg,
+                        "weight_unit": "kg"
+                    }
+                }
+
+                estimate_response = requests.post(
+                    f"{climatiq_url}/data/v1/estimate",
+                    json=estimate_payload,
+                    headers=headers,
+                    timeout=10
+                )
+
+                if estimate_response.status_code == 200:
+                    estimated_co2 = float(estimate_response.json().get("co2e", 0.0))
+                else:
+                    return Response({"error": f"Climatiq mathematical calculation error: {estimate_response.text}"}, status=status.HTTP_502_BAD_GATEWAY)
+
+            except requests.exceptions.RequestException as e:
+                return Response({"error": f"Climatiq communication timeout: {str(e)}"}, status=status.HTTP_504_GATEWAY_TIMEOUT)
+
+        # Step 5: Core System Evaluation (Dynamic Budget + Hazard Flags)
         profile = getattr(user, 'userprofile', None)
         if not profile:
             return Response({"error": "UserProfile missing."}, status=status.HTTP_404_NOT_FOUND)
@@ -496,9 +760,16 @@ class ProductScannerIngestionView(APIView):
         projected_total = current_accumulated + estimated_co2
         offset_cost_kes = int(max(5, estimated_co2 * 15))
 
-        if projected_total > (monthly_budget * 2):
+        # Explicit safety boundary rules to block hazardous inputs
+        hazardous_keywords = ["asbestos", "toxic", "carcinogen", "hazardous", "lead paint", "chemical waste"]
+        is_hazardous = any(keyword in product_name.lower() for keyword in hazardous_keywords)
+
+        if is_hazardous:
             tier = "RED"
-            msg = "Action Restricted: Massive carbon budget overshoot."
+            msg = "ECOLOGICAL HAZARD CRITICAL: This material contains severe toxic components."
+        elif projected_total > (monthly_budget * 2):
+            tier = "RED"
+            msg = "Consumption Restricted: Massive carbon budget overshoot."
         elif projected_total > monthly_budget:
             tier = "YELLOW"
             msg = "Target Exceeded: Bridgeable by programmatically purchasing Carbonmark credits via M-Pesa."
@@ -508,7 +779,7 @@ class ProductScannerIngestionView(APIView):
 
         return Response({
             "product_name": product_name,
-            "calculated_footprint_kg": estimated_co2,
+            "calculated_footprint_kg": round(estimated_co2, 3),
             "offset_cost_kes": offset_cost_kes,
             "user_metrics": {
                 "current_month_total": current_accumulated,
@@ -519,6 +790,7 @@ class ProductScannerIngestionView(APIView):
                 "message": msg
             }
         }, status=status.HTTP_200_OK)
+    
 
 class VoiceLogView(APIView):
     permission_classes = [IsAuthenticated]
@@ -526,7 +798,7 @@ class VoiceLogView(APIView):
 
     def post(self, request):
         if 'file' not in request.FILES:
-            return Response({"error": "No voice recording file found under the 'file' parameter key."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"error": "No voice recording file found under the 'file' parameter."}, status=status.HTTP_400_BAD_REQUEST)
         
         audio_file = request.FILES['file']
         groq_key = os.getenv("GROQ_API_KEY")
@@ -590,8 +862,6 @@ class VoiceLogView(APIView):
 
         # 3. ROUTING & DATA ACQUISITION EXECUTION FORKS
         if intent_type == "route":
-            # If the user spoken phrase intends a route mapping, direct them to your premium transit view workflow
-            # We preserve standard requests parameters passing via custom internal dictionary formatting
             origin = payload.get("origin")
             destination = payload.get("destination")
             
@@ -611,14 +881,12 @@ class VoiceLogView(APIView):
             }, status=status.HTTP_200_OK)
 
         else:
-            # 1. Safely extract raw values, ensuring None gets overridden by a default value
             raw_input = payload.get("input_value")
             input_value = float(raw_input) if raw_input is not None else 1.0
 
             raw_co2e = payload.get("co2e_kg")
             co2e_kg = float(raw_co2e) if raw_co2e is not None else 0.0
 
-            # 2. Commit the clean parameters directly into your database schema
             log = ActivityLog.objects.create(
                 user=request.user,
                 category=payload.get("category", "diet"),
@@ -702,3 +970,27 @@ class UserProfileDashboardView(APIView):
         }
 
         return Response(payload, status=status.HTTP_200_OK)
+    
+#  PaymentStatusView - Complete and Working
+class PaymentStatusView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request, checkout_id):
+        try:
+            payment = PaymentLog.objects.get(
+                mpesa_checkout_id=checkout_id,
+                user=request.user
+            )
+            return Response({
+                'status': payment.status,
+                'payment_type': payment.payment_type,
+                'amount': float(payment.amount),
+                'created_at': payment.created_at,
+                'completed_at': payment.completed_at,
+                'metadata': payment.metadata
+            }, status=status.HTTP_200_OK)
+        except PaymentLog.DoesNotExist:
+            return Response({
+                'error': 'Payment not found',
+                'checkout_id': checkout_id
+            }, status=status.HTTP_404_NOT_FOUND)

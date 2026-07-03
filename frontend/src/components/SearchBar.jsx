@@ -1,188 +1,238 @@
 // src/components/SearchBar.jsx
 import React, { useState } from 'react';
-import { MapPin, Navigation, Car, Compass, Search, AlertCircle } from 'lucide-react';
-import * as turf from '@turf/turf';
+import { createPortal } from 'react-dom'; // ✅ Import createPortal for proper layout injection
+import { Search, Loader2, X, CheckCircle2, AlertCircle } from 'lucide-react';
 
-function SearchBar({ onOptimize, renderRouteOnCanvas }) {
-    // Form inputs state
-    const [origin, setOrigin] = useState('Runda, Nairobi');
-    const [destination, setDestination] = useState('Kileleshwa, Nairobi');
-    const [vehicleType, setVehicleType] = useState('SUV');
-    const [vehicleMake, setVehicleMake] = useState('Range Rover Velar');
-
-    // UI Feedback Processing States
+const SearchBar = () => {
+    const [query, setQuery] = useState('');
     const [loading, setLoading] = useState(false);
-    const [error, setError] = useState(null);
+    const [toast, setToast] = useState(null);
 
-    // Helper: Address to Geolocation conversion via OpenStreetMap Nominatim API
-    const geocodeAddress = async (addressText) => {
-        const response = await fetch(
-            `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(addressText + ', Kenya')}&limit=1`
-        );
-        const results = await response.json();
-        if (!results || results.length === 0) {
-            throw new Error(`Could not pinpoint coordinate matrix for location: "${addressText}"`);
-        }
-        return [parseFloat(results[0].lon), parseFloat(results[0].lat)];
-    };
-
-    // Main Execution Pipeline Trigger (Imported from MapWindow side-panel logic)
-    const handleSubmit = async (e) => {
-        if (e) e.preventDefault();
-        setLoading(false); // Reset tracking pipeline
-        setError(null);
-
-        if (!origin.trim() || !destination.trim() || !vehicleType.trim() || !vehicleMake.trim()) return;
+    const handleSearch = async (e) => {
+        e.preventDefault();
+        if (!query.trim()) return;
 
         setLoading(true);
+        setToast(null);
 
         try {
-            // 1. Concurrent Geocoding resolution via Nominatim
-            const [originCoords, destCoords] = await Promise.all([
-                geocodeAddress(origin.trim()),
-                geocodeAddress(destination.trim())
-            ]);
-
-            // 2. Fetch High-Fidelity Geometry via OSRM Demo Server Router
-            const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${originCoords.join(',')};${destCoords.join(',')}?overview=full&geometries=geojson`;
-            const osrmResponse = await fetch(osrmUrl);
-            const osrmData = await osrmResponse.json();
-
-            if (!osrmData.routes || osrmData.routes.length === 0) {
-                throw new Error("OSRM failed to calculate route paths between points.");
-            }
-
-            const routeGeoJSON = osrmData.routes[0].geometry;
-
-            // 3. Sync and fetch metrics from your Django AI Optimization Endpoint
             const token = localStorage.getItem('token');
-            const aiResponse = await fetch('http://127.0.0.1:8000/api/premium/ai-optimizer/', {
+            const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
+
+            const response = await fetch(`${baseUrl}/api/scanner/ingest/`, {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${token}`,
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
-                    task: "route",
-                    origin: origin.trim(),
-                    destination: destination.trim(),
-                    vehicle_type: vehicleType.trim(),
-                    vehicle_make: vehicleMake.trim().toLowerCase()
+                    product_name: query.trim(),
+                    qr_payload: query.trim()
                 })
             });
 
-            if (!aiResponse.ok) {
-                const faultPayload = await aiResponse.json();
-                throw new Error(faultPayload.error || "AI optimization view returned a bad status code.");
-            }
+            const data = await response.json();
 
-            const aiCalculations = await aiResponse.json();
-            
-            // 4. Pass execution payload up to parent node handlers
-            if (onOptimize) {
-                onOptimize(aiCalculations);
-            }
+            if (response.ok) {
+                setToast({
+                    type: 'success',
+                    data: data,
+                    visible: true
+                });
 
-            // 5. Fire canvas mapping coordinates safely back down to map bounds if callback exists
-            if (renderRouteOnCanvas) {
-                renderRouteOnCanvas(routeGeoJSON, originCoords, destCoords);
-            }
+                setTimeout(() => {
+                    setToast(null);
+                }, 6000);
 
+                setQuery('');
+            } else {
+                setToast({
+                    type: 'error',
+                    message: data.error || 'Failed to analyze product',
+                    visible: true
+                });
+                setTimeout(() => setToast(null), 6000);
+            }
         } catch (err) {
-            setError(err.message || "An unhandled execution trace failed your request routing.");
+            console.error('Search error:', err);
+            setToast({
+                type: 'error',
+                message: 'Network error. Please try again.',
+                visible: true
+            });
+            setTimeout(() => setToast(null), 6000);
         } finally {
+            loading && setLoading(false); // Clean fallback check
             setLoading(false);
         }
     };
 
+    const handleAddToHistory = async (productData) => {
+        setToast(null);
+        console.log('Adding to history:', productData);
+    };
+
+    const handleCancel = () => {
+        setToast(null);
+    };
+
     return (
-        <div className='w-full max-w-7xl mx-auto mb-6 space-y-4'>
-            <div className='w-full bg-white/10 backdrop-blur-xl border border-white/20 rounded-3xl p-6 shadow-2xl'>
-                <form onSubmit={handleSubmit} className="flex flex-col lg:flex-row items-stretch lg:items-center gap-4">
-                    
-                    {/* Origin Input */}
-                    <div className='relative flex-1 group'>
-                        <MapPin className='absolute left-4 top-1/2 transform -translate-y-1/2 text-white/60 w-5 h-5 group-focus-within:text-green-300 transition-all' />
-                        <input 
-                            type="text" 
-                            className="w-full pl-12 pr-4 py-4 bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-green-400/30 transition-all duration-300 text-sm" 
-                            disabled={loading}
-                            placeholder="Starting location..."
-                            onChange={(e) => setOrigin(e.target.value)}
-                            value={origin}
-                            required
-                        />
-                    </div>
-
-                    {/* Destination Input */}
-                    <div className='relative flex-1 group'>
-                        <Navigation className='absolute left-4 top-1/2 transform -translate-y-1/2 text-white/60 w-5 h-5 group-focus-within:text-green-300 transition-all' />
-                        <input 
-                            type="text" 
-                            className="w-full pl-12 pr-4 py-4 bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-green-400/30 transition-all duration-300 text-sm" 
-                            disabled={loading}
-                            placeholder="Ending destination..."
-                            onChange={(e) => setDestination(e.target.value)}
-                            value={destination}
-                            required
-                        />
-                    </div>
-
-                    {/* Vehicle Profile Type */}
-                    <div className='relative flex-1 group lg:max-w-[200px]'>
-                        <Car className='absolute left-4 top-1/2 transform -translate-y-1/2 text-white/60 w-5 h-5 group-focus-within:text-green-300 transition-all' />
-                        <input 
-                            type="text" 
-                            className="w-full pl-12 pr-4 py-4 bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-green-400/30 transition-all duration-300 text-sm" 
-                            disabled={loading}
-                            placeholder="Vehicle Type (e.g., SUV)"
-                            onChange={(e) => setVehicleType(e.target.value)}
-                            value={vehicleType}
-                            required
-                        />
-                    </div>
-
-                    {/* Model Variant Specification */}
-                    <div className='relative flex-1 group lg:max-w-[220px]'>
-                        <Compass className='absolute left-4 top-1/2 transform -translate-y-1/2 text-white/60 w-5 h-5 group-focus-within:text-green-300 transition-all' />
-                        <input 
-                            type="text" 
-                            className="w-full pl-12 pr-4 py-4 bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-green-400/30 transition-all duration-300 text-sm" 
-                            disabled={loading}
-                            placeholder="Variant (e.g., Velar)"
-                            onChange={(e) => setVehicleMake(e.target.value)}
-                            value={vehicleMake}
-                            required
-                        />
-                    </div>
-
-                    {/* Optimization Button */}
-                    <button 
-                        type="submit" 
-                        disabled={loading || !origin || !destination || !vehicleType || !vehicleMake}
-                        className='px-6 py-4 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-400 hover:to-emerald-500 disabled:from-white/10 disabled:to-white/10 disabled:text-white/40 disabled:cursor-not-allowed text-white font-bold rounded-2xl shadow-xl transition-all duration-300 flex items-center justify-center space-x-2 shrink-0 border border-green-400/20 group'
-                    >
-                        {loading ? (
-                            <div className='animate-spin rounded-full h-5 w-5 border-2 border-white/30 border-t-white'></div>
-                        ) : (
-                            <>
-                                <Search className='w-5 h-5 group-hover:scale-110 transition-transform' />
-                                <span>Optimize Route</span>
-                            </>
-                        )}
-                    </button>
-                </form>
-            </div>
-
-            {/* Error Overlay Notice Banner Component */}
-            {error && (
-                <div className="p-4 bg-red-500/10 border border-red-500/20 text-red-400 rounded-2xl text-xs font-medium flex items-start gap-2 max-w-7xl mx-auto backdrop-blur-md">
-                    <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-                    <span>{error}</span>
+        <div className="relative w-full">
+            {/* Search Form */}
+            <form onSubmit={handleSearch} className="relative">
+                <div className="relative">
+                    <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                    <input
+                        type="text"
+                        value={query}
+                        onChange={(e) => setQuery(e.target.value)}
+                        placeholder="Search product name or paste QR code..."
+                        className="w-full pl-11 pr-24 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500/20 focus:border-green-500 text-gray-900 text-sm transition-all"
+                        disabled={loading}
+                    />
+                    {query && (
+                        <button
+                            type="button"
+                            onClick={() => setQuery('')}
+                            className="absolute right-20 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                        >
+                            <X className="w-4 h-4" />
+                        </button>
+                    )}
+                    {loading && (
+                        <div className="absolute right-20 top-1/2 transform -translate-y-1/2">
+                            <Loader2 className="w-4 h-4 text-green-600 animate-spin" />
+                        </div>
+                    )}
                 </div>
+                <button
+                    type="submit"
+                    disabled={loading || !query.trim()}
+                    className="absolute right-1 top-1/2 transform -translate-y-1/2 px-4 py-1.5 bg-green-600 hover:bg-green-700 disabled:bg-gray-300 text-white text-xs font-medium rounded-lg transition-colors"
+                >
+                    Search
+                </button>
+            </form>
+
+            {/* ✅ Toast Notification - Using Portal to render directly under document.body */}
+            {toast && toast.visible && createPortal(
+                <>
+                    {/* Injecting CSS Keyframes dynamically for the progress bar shrink animation */}
+                    <style>{`
+                        @keyframes shrink {
+                            from { transform: scaleX(1); }
+                            to { transform: scaleX(0); }
+                        }
+                    `}</style>
+                    <div 
+                        className="fixed bottom-8 left-1/2 -translate-x-1/2 z-[9999] w-[92%] sm:w-full sm:max-w-xl px-4"
+                        role="alert"
+                    >
+                        <div className={`rounded-2xl shadow-2xl border p-5 backdrop-blur-md ${
+                            toast.type === 'success' ? 'bg-white/95 border-green-200 shadow-green-900/5' : 'bg-red-50/95 border-red-200'
+                        }`}>
+                            {toast.type === 'success' && toast.data ? (
+                                <div className="space-y-4">
+                                    {/* Header */}
+                                    <div className="flex items-start justify-between gap-4">
+                                        <div className="flex items-center gap-3">
+                                            <div className="p-2 bg-green-100 rounded-xl shrink-0">
+                                                <CheckCircle2 className="w-5 h-5 text-green-600" />
+                                            </div>
+                                            <div>
+                                                <h4 className="text-sm font-bold text-gray-900 line-clamp-1">
+                                                    {toast.data.product_name || 'Product Scanned'}
+                                                </h4>
+                                                <p className="text-xs text-gray-500">
+                                                    Carbon Footprint: {toast.data.calculated_footprint_kg} kg CO₂
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <button
+                                            onClick={handleCancel}
+                                            className="text-gray-400 hover:text-gray-600 transition-colors p-1"
+                                        >
+                                            <X className="w-4 h-4" />
+                                        </button>
+                                    </div>
+
+                                    {/* Status Badge */}
+                                    <div className={`p-3 rounded-xl text-xs font-medium ${
+                                        toast.data.advisory_status?.tier === 'GREEN' 
+                                            ? 'bg-green-50 text-green-700 border border-green-100'
+                                            : toast.data.advisory_status?.tier === 'YELLOW'
+                                            ? 'bg-yellow-50 text-yellow-700 border border-yellow-100'
+                                            : 'bg-red-50 text-red-700 border border-red-100'
+                                    }`}>
+                                        {toast.data.advisory_status?.message || 'Product analyzed successfully'}
+                                    </div>
+
+                                    {/* Metrics */}
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div className="p-3 bg-gray-50/80 rounded-xl text-center">
+                                            <p className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold">Footprint</p>
+                                            <p className="text-base font-bold text-gray-900 mt-0.5">
+                                                {toast.data.calculated_footprint_kg} kg
+                                            </p>
+                                        </div>
+                                        <div className="p-3 bg-gray-50/80 rounded-xl text-center">
+                                            <p className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold">Offset Cost</p>
+                                            <p className="text-base font-bold text-green-600 mt-0.5">
+                                                KES {toast.data.offset_cost_kes}
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    {/* Action Buttons */}
+                                    <div className="flex gap-3 pt-1">
+                                        <button
+                                            onClick={() => handleAddToHistory(toast.data)}
+                                            className="flex-1 px-4 py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-xl text-xs font-semibold shadow-sm shadow-green-600/10 transition-colors"
+                                        >
+                                            Add to History
+                                        </button>
+                                        <button
+                                            onClick={handleCancel}
+                                            className="flex-1 px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-xs font-semibold transition-colors"
+                                        >
+                                            Cancel
+                                        </button>
+                                    </div>
+
+                                    {/* Progress Bar - 6 seconds */}
+                                    <div className="w-full h-1 bg-gray-100 rounded-full overflow-hidden">
+                                        <div 
+                                            className="h-full bg-green-500 rounded-full"
+                                            style={{ 
+                                                animation: 'shrink 6s linear forwards',
+                                                transformOrigin: 'left',
+                                                width: '100%'
+                                            }}
+                                        />
+                                    </div>
+                                </div>
+                            ) : (
+                                // Error Toast
+                                <div className="flex items-center gap-3 justify-between">
+                                    <div className="flex items-center gap-3 min-w-0">
+                                        <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
+                                        <p className="text-sm font-medium text-red-600 truncate">{toast.message}</p>
+                                    </div>
+                                    <button
+                                        onClick={handleCancel}
+                                        className="text-red-400 hover:text-red-600 transition-colors p-1"
+                                    >
+                                        <X className="w-4 h-4" />
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </>,
+                document.body
             )}
         </div>
     );
-}
+};
 
 export default SearchBar;

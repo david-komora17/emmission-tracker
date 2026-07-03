@@ -41,20 +41,32 @@ class UserProfile(models.Model):
     def __str__(self):
         return f"{self.user.username} - Tier: {self.account_tier} (Premium: {self.is_premium})"
 
-
 class SystemComplaint(models.Model):
     """The data store for the user feedback widget."""
+    
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('in_progress', 'In Progress'),
+        ('addressed', 'Addressed'),
+    ]
+    
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='complaints')
     subject = models.CharField(max_length=255)
     message = models.TextField()
+    status = models.CharField(
+        max_length=20, 
+        choices=STATUS_CHOICES, 
+        default='pending'
+    )
+    response = models.TextField(blank=True, null=True)  # Admin response
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)  # Track last update
     
     class Meta:
         ordering = ['-created_at']
 
     def __str__(self):
-        return f"Complaint by {self.user.username} - {self.subject}"
-
+        return f"Complaint by {self.user.username} - {self.subject} ({self.status})"
 
 class RegionalDefault(models.Model):
     """Stores regional fallback estimate if a user does not know their exact metrics."""
@@ -77,6 +89,8 @@ class ActivityLog(models.Model):
         ('transportation', 'Transportation'),
         ('home_energy', 'Home Energy'),
         ('diet', 'Diet'),
+        ('payment', 'Payment'), 
+        ('offset', 'Carbon Offset'),  
     ]
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='activities')
     category = models.CharField(max_length=50, choices=CATEGORY_CHOICES)
@@ -139,3 +153,31 @@ class MilestoneInterceptLog(models.Model):
 
     def __str__(self):
         return f"Step {self.step_index} for Log {self.route_log.id}"
+    
+
+class PaymentLog(models.Model):
+    PAYMENT_TYPES = [
+        ('subscription', 'Premium Subscription'),
+        ('carbon_credits', 'Carbon Credits'),
+    ]
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('completed', 'Completed'),
+        ('failed', 'Failed'),
+    ]
+    
+    metadata = models.JSONField(default=dict, blank=True)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='payments')
+    payment_type = models.CharField(max_length=20, choices=PAYMENT_TYPES)
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    mpesa_checkout_id = models.CharField(max_length=100, db_index=True)  
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    created_at = models.DateTimeField(auto_now_add=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['mpesa_checkout_id']),
+            models.Index(fields=['user', 'status']),
+        ]

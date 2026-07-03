@@ -1,0 +1,11 @@
+### Test Voice Conversation Endpoint
+POST http://127.0.0.1:8000/api/voice/log/
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzgyNDcwMDI0LCJpYXQiOjE3ODIzODM2MjQsImp0aSI6ImFmM2RlOGUxYzJjZTRmNWJiMTQ2YzhhYjMwNzA1MmVjIiwidXNlcl9pZCI6IjYifQ.pYplGM9iuBFud2pKmMwzPHpnsb5l0MqvNO4xhOrnrvc
+Content-Type: multipart/form-data; boundary=voice_boundary
+
+--voice_boundary
+Content-Disposition: form-data; name="file"; filename="test_voice.mp3"
+Content-Type: audio/mpeg
+
+< ./test_voice.mp3
+--voice_boundary--

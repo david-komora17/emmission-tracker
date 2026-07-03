@@ -1,51 +1,141 @@
 // src/components/AdminDashboard.jsx
 import React, { useState, useEffect } from 'react';
-import { ShieldAlert, RefreshCw, Calendar, User, Crown } from 'lucide-react';
+import { 
+    ShieldAlert, 
+    RefreshCw, 
+    Calendar, 
+    User, 
+    Crown, 
+    OctagonAlert,
+    CheckCircle,
+    Clock,
+    AlertCircle,
+    Edit2,
+    X,
+    Save,
+    Trash2,
+    Reply,
+    ChevronDown,
+    ChevronUp,
+    Filter,
+    Send,
+    MessageSquare
+} from 'lucide-react';
+import {
+    fetchComplaints,
+    updateComplaintStatus,
+    sendResponse,
+    deleteComplaint,
+    deleteAllAddressed
+} from '../services/complaintService';
 
 const AdminDashboard = () => {
     const [complaints, setComplaints] = useState([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
+    const [success, setSuccess] = useState(null);
+    const [filter, setFilter] = useState('all');
+    const [expandedId, setExpandedId] = useState(null);
+    const [editingStatus, setEditingStatus] = useState(null);
+    const [selectedStatus, setSelectedStatus] = useState('');
+    const [showResponseModal, setShowResponseModal] = useState(false);
+    const [selectedComplaint, setSelectedComplaint] = useState(null);
+    const [responseText, setResponseText] = useState('');
+    const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+    const [complaintToDelete, setComplaintToDelete] = useState(null);
 
-    const fetchComplaints = async () => {
+    // Load complaints
+    const loadComplaints = async () => {
         setLoading(true);
         setError(null);
-        try {
-            const token = localStorage.getItem('token');
-            const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
-            
-            const response = await fetch(`${baseUrl}/api/feedback/complaints/`, {
-                method: 'GET',
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                }
-            });
-
-            // Admin accounts bypass 429 - they get full access
-            if (response.status === 429) {
-                // This should never happen for admins, but handle gracefully
-                setError("Admin rate limit unexpectedly hit. Please contact support.");
-                return;
-            }
-
-            if (!response.ok) {
-                throw new Error(`Server returned code: ${response.status}`);
-            }
-            
-            const data = await response.json();
-            setComplaints(data);
-        } catch (err) {
-            console.error(err);
-            setError(err.message || "Failed to load system funnel logs.");
-        } finally {
-            setLoading(false);
+        setSuccess(null);
+        
+        const result = await fetchComplaints();
+        
+        if (result.success) {
+            const complaintsWithStatus = result.data.map(complaint => ({
+                ...complaint,
+                status: complaint.status || 'pending',
+                response: complaint.response || null
+            }));
+            setComplaints(complaintsWithStatus);
+        } else {
+            setError(result.error || "Failed to load complaints.");
         }
+        
+        setLoading(false);
     };
 
     useEffect(() => {
-        fetchComplaints();
+        loadComplaints();
     }, []);
+
+    // Update status
+    const handleUpdateStatus = async (complaintId, newStatus) => {
+        const result = await updateComplaintStatus(complaintId, newStatus);
+        
+        if (result.success) {
+            setComplaints(prev =>
+                prev.map(c => c.id === complaintId ? { ...c, status: newStatus } : c)
+            );
+            setSuccess(`Status updated to '${newStatus.replace('_', ' ')}'`);
+            setEditingStatus(null);
+            setSelectedStatus('');
+            setTimeout(() => setSuccess(null), 3000);
+        } else {
+            setError(result.error || 'Failed to update status');
+            setTimeout(() => setError(null), 4000);
+        }
+    };
+
+    // Send response
+    const handleSendResponse = async (complaintId, responseText) => {
+        const result = await sendResponse(complaintId, responseText);
+        
+        if (result.success) {
+            setComplaints(prev =>
+                prev.map(c => c.id === complaintId ? { ...c, response: responseText, status: 'addressed' } : c)
+            );
+            setSuccess('Response sent successfully!');
+            setShowResponseModal(false);
+            setResponseText('');
+            setSelectedComplaint(null);
+            setTimeout(() => setSuccess(null), 3000);
+        } else {
+            setError(result.error || 'Failed to send response');
+            setTimeout(() => setError(null), 4000);
+        }
+    };
+
+    // Delete single complaint
+    const handleDeleteComplaint = async (complaintId) => {
+        const result = await deleteComplaint(complaintId);
+        
+        if (result.success) {
+            setComplaints(prev => prev.filter(c => c.id !== complaintId));
+            setSuccess('Complaint deleted successfully!');
+            setShowDeleteConfirm(false);
+            setComplaintToDelete(null);
+            setTimeout(() => setSuccess(null), 3000);
+        } else {
+            setError(result.error || 'Failed to delete complaint');
+            setTimeout(() => setError(null), 4000);
+        }
+    };
+
+    // Bulk delete addressed
+    const handleDeleteAllAddressed = async () => {
+        const result = await deleteAllAddressed(complaints);
+        
+        if (result.success) {
+            setComplaints(prev => prev.filter(c => c.status !== 'addressed'));
+            setSuccess(`${result.data.deletedCount} addressed complaints deleted!`);
+            setTimeout(() => setSuccess(null), 3000);
+        } else {
+            setError(result.error || 'Failed to delete addressed complaints');
+            setTimeout(() => setError(null), 4000);
+        }
+    };
 
     return (
         <div className="w-full space-y-6">
@@ -72,7 +162,7 @@ const AdminDashboard = () => {
 
             {error && (
                 <div className="bg-red-500/10 border border-red-500/20 p-4 rounded-xl text-red-300 text-xs font-semibold backdrop-blur-sm">
-                    ⚠️ {error}
+                     {error}
                 </div>
             )}
 
@@ -87,7 +177,7 @@ const AdminDashboard = () => {
                 </div>
             ) : complaints.length === 0 ? (
                 <div className="text-center py-16 border border-dashed border-emerald-500/20 rounded-2xl bg-emerald-500/5">
-                    <div className="text-4xl mb-3">🌿</div>
+                    <div className="text-4xl mb-3"></div>
                     <p className="text-emerald-400/50 text-sm font-bold tracking-wide uppercase">
                         No active complaints found
                     </p>
@@ -139,5 +229,4 @@ const AdminDashboard = () => {
         </div>
     );
 };
-
-export default AdminDashboard;
+export default AdminDashboard;  // Add this line

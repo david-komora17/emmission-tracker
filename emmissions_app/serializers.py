@@ -74,13 +74,24 @@ class CustomRegisterSerializer(serializers.Serializer):
             
         return data
 
-
 # -------------------------------------------------------------------
 # 3. Complaints Serializer
 # -------------------------------------------------------------------
 class SystemComplaintSerializer(serializers.ModelSerializer):
     username = serializers.CharField(source='user.username', read_only=True)
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
 
     class Meta:
         model = SystemComplaint
-        fields = ['id', 'username', 'subject', 'message', 'created_at']
+        fields = [
+            'id', 
+            'username', 
+            'subject', 
+            'message', 
+            'status',
+            'status_display',
+            'response',
+            'created_at',
+            'updated_at'
+        ]
+        read_only_fields = ['status', 'response', 'created_at', 'updated_at']
