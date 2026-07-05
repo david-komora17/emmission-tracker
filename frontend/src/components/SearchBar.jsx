@@ -1,6 +1,6 @@
 // src/components/SearchBar.jsx
 import React, { useState } from 'react';
-import { createPortal } from 'react-dom'; // ✅ Import createPortal for proper layout injection
+import { createPortal } from 'react-dom'; //  Import createPortal for proper layout injection
 import { Search, Loader2, X, CheckCircle2, AlertCircle } from 'lucide-react';
 
 const SearchBar = () => {

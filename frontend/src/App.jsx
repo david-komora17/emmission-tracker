@@ -68,6 +68,12 @@ function App() {
         setShowDropdownMenu(false);
     };
 
+    const handleQuotaExceeded = (quotaError) => {
+        setPaywallMetrics(quotaError);
+        setShowPaywall(true);
+        setError(null);
+    };
+
     // Close dropdown when clicking outside
     useEffect(() => {
         const handleClickOutside = (event) => {
@@ -324,7 +330,7 @@ function App() {
                                     </p>
                                 </div>
                             ) : (
-                                <MapWindow routeData={routeData} />
+                                <MapWindow routeData={routeData} onQuotaExceeded={handleQuotaExceeded} />
                             )}
                         </div>
                     )}

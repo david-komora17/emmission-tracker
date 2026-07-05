@@ -206,7 +206,7 @@ const QuotaPaywallCard = ({ errorDetails, onClose, onPaymentSuccess, onRetryAI }
                     <form onSubmit={handleMpesaCheckout} className="space-y-4">
                         <div>
                             <label className="block text-xs font-medium text-gray-700 mb-1.5">
-                                M-Pesa Phone Number <span className="text-gray-400 font-normal ml-1">(Optional)</span>
+                                M-Pesa Phone Number 
                             </label>
                             <input 
                                 type="text"

@@ -5,7 +5,8 @@ import {
     AlertCircle, 
     CheckCircle, 
     X, 
-    MessageSquare 
+    MessageSquare,
+    Lightbulb 
 } from 'lucide-react';
 import { createComplaint } from '../services/complaintService';
 
@@ -152,7 +153,10 @@ const Complaints = ({ onClose }) => {
 
                             {/* Quick Tips */}
                             <div className="p-3 bg-blue-50 border border-blue-100 rounded-lg">
-                                <p className="text-xs text-blue-700 font-medium">💡 Tips for effective feedback:</p>
+                                <p className="text-xs text-blue-700 font-medium">
+                                    <Lightbulb className="w-4 h-4 inline mr-1" />
+                                     Tips for effective feedback:
+                                </p>
                                 <ul className="text-xs text-blue-600 mt-1 space-y-0.5 list-disc list-inside">
                                     <li>Be specific about the issue you're experiencing</li>
                                     <li>Include steps to reproduce if it's a bug</li>

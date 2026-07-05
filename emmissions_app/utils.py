@@ -7,9 +7,13 @@ from rest_framework.exceptions import APIException
 def get_mpesa_callback_url(request=None):
     """
     Dynamically routes the M-Pesa transaction results webhook.
-    Uses the live Vercel domain in production, and falls back to the
-    programmatic ngrok tunnel link during local execution.
+    Uses the explicit MPESA_CALLBACK_URL if provided, otherwise falls back
+    to the live Vercel domain or ngrok tunnel when running locally.
     """
+    explicit_callback_url = os.environ.get('MPESA_CALLBACK_URL')
+    if explicit_callback_url:
+        return explicit_callback_url if explicit_callback_url.endswith('/') else f"{explicit_callback_url}/"
+
     # Check if it is running in a live production environment
     if os.environ.get('VERCEL') == '1' or os.environ.get('PRODUCTION_HOST'):
         base_url = os.environ.get('PRODUCTION_HOST', '').rstrip('/')

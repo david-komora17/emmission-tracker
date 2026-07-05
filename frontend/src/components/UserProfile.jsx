@@ -1,5 +1,4 @@
 // src/components/UserProfile.jsx
-// src/components/UserProfile.jsx
 import React, { useState, useEffect } from 'react';
 import { X, Award, Mail, ShieldCheck, Zap, Leaf, Calendar, Crown, Loader2, Phone } from 'lucide-react';
 import CarbonHistory from './CarbonHistory';

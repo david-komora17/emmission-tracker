@@ -7,7 +7,7 @@ import { Navigation, Car, AlertCircle, Compass, Loader2, Leaf, Route, TrendingDo
 import { toast } from 'react-hot-toast'; // or use your project's custom toast trigger wrapper
 import 'maplibre-gl/dist/maplibre-gl.css';
 
-export default function MapWindow() {
+export default function MapWindow({ routeData, onQuotaExceeded }) {
     const mapContainerRef = useRef(null);
     const mapRef = useRef(null);
     const routeMarkerRef = useRef([]);
@@ -97,32 +97,35 @@ export default function MapWindow() {
             if (aiResponse.status === 429) {
                 const throttledPayload = await aiResponse.json();
                 const contextualError = throttledPayload.detail?.error || "Usage limit reached.";
-                
-                // Show clean custom premium upgrade toast notification
-                toast.custom((t) => (
-                    <div className={`${t.visible ? 'animate-enter' : 'animate-leave'} max-w-md w-full bg-white shadow-2xl rounded-2xl pointer-events-auto flex ring-1 ring-black/5 p-4 border border-amber-100`}>
-                        <div className="flex-1 w-0">
-                            <div className="flex items-start gap-3">
-                                <div className="p-2.5 bg-amber-50 border border-amber-100 rounded-xl shrink-0">
-                                    <span className="text-xl"></span>
-                                </div>
-                                <div className="flex-1">
-                                    <p className="text-sm font-bold text-gray-900">Upgrade Required</p>
-                                    <p className="mt-1 text-xs text-gray-500 leading-relaxed">{contextualError}</p>
-                                    <div className="mt-3 flex items-center justify-between bg-amber-50/50 p-2 rounded-xl border border-amber-100/50">
-                                        <span className="text-[10px] uppercase font-bold text-amber-800 tracking-wider">Access Price</span>
-                                        <span className="text-xs font-black text-amber-900">${throttledPayload.detail?.amount_payable?.toFixed(2) || "5.00"}</span>
+
+                if (onQuotaExceeded) {
+                    onQuotaExceeded({ ...throttledPayload, status: 429 });
+                } else {
+                    toast.custom((t) => (
+                        <div className={`${t.visible ? 'animate-enter' : 'animate-leave'} max-w-md w-full bg-white shadow-2xl rounded-2xl pointer-events-auto flex ring-1 ring-black/5 p-4 border border-amber-100`}>
+                            <div className="flex-1 w-0">
+                                <div className="flex items-start gap-3">
+                                    <div className="p-2.5 bg-amber-50 border border-amber-100 rounded-xl shrink-0">
+                                        <span className="text-xl"></span>
+                                    </div>
+                                    <div className="flex-1">
+                                        <p className="text-sm font-bold text-gray-900">Upgrade Required</p>
+                                        <p className="mt-1 text-xs text-gray-500 leading-relaxed">{contextualError}</p>
+                                        <div className="mt-3 flex items-center justify-between bg-amber-50/50 p-2 rounded-xl border border-amber-100/50">
+                                            <span className="text-[10px] uppercase font-bold text-amber-800 tracking-wider">Access Price</span>
+                                            <span className="text-xs font-black text-amber-900">${throttledPayload.detail?.amount_payable?.toFixed(2) || "5.00"}</span>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
+                            <div className="flex border-l border-gray-100 ml-4 pl-2 items-start">
+                                <button onClick={() => toast.dismiss(t.id)} className="p-1 text-gray-400 hover:text-gray-600 rounded-lg text-xs">✕</button>
+                            </div>
                         </div>
-                        <div className="flex border-l border-gray-100 ml-4 pl-2 items-start">
-                            <button onClick={() => toast.dismiss(t.id)} className="p-1 text-gray-400 hover:text-gray-600 rounded-lg text-xs">✕</button>
-                        </div>
-                    </div>
-                ), { duration: 6000 });
+                    ), { duration: 6000 });
+                }
 
-                throw new Error(contextualError);
+                return;
             }
 
             if (!aiResponse.ok) {

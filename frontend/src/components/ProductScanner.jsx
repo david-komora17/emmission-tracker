@@ -1,7 +1,7 @@
 // src/components/ProductScanner.jsx
 import React, { useState, useRef, useEffect } from 'react';
 import { BrowserMultiFormatReader } from '@zxing/browser';
-import { X, Camera, Loader2, Scan, CheckCircle2, AlertCircle, Search } from 'lucide-react';
+import { X, Camera, Loader2, Scan, CheckCircle2, AlertCircle, Search, Upload } from 'lucide-react';
 
 const ProductScanner = ({ onClose, onScanComplete }) => {
     // Camera states
@@ -57,6 +57,48 @@ const ProductScanner = ({ onClose, onScanComplete }) => {
         } finally {
             setLoading(false);
             setSearchLoading(false);
+        }
+    };
+
+    // ========== QR IMAGE UPLOAD ==========
+    const handleImageUpload = async (event) => {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        setLoading(true);
+        setError(null);
+
+        const formData = new FormData();
+        formData.append('qr_image', file);
+
+        try {
+            const token = localStorage.getItem('token');
+            const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
+
+            const response = await fetch(`${baseUrl}/api/scanner/ingest/`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                },
+                body: formData
+            });
+
+            const resultData = await response.json();
+
+            if (response.ok) {
+                setResult(resultData);
+                showToast(resultData);
+                if (onScanComplete) {
+                    onScanComplete(resultData);
+                }
+            } else {
+                setError(resultData.error || 'Failed to process QR image.');
+            }
+        } catch (err) {
+            setError('Network error processing QR image.');
+            console.error('QR upload error:', err);
+        } finally {
+            setLoading(false);
         }
     };
 
@@ -224,8 +266,17 @@ const ProductScanner = ({ onClose, onScanComplete }) => {
                         <div className="space-y-4">
                             <div className="p-6 bg-gray-50 border-2 border-dashed border-gray-300 rounded-xl text-center">
                                 <Camera className="w-10 h-10 text-gray-400 mx-auto mb-2" />
-                                <p className="text-sm text-gray-600">Click below to open camera</p>
-                                <p className="text-xs text-gray-400">Hold camera up to a product QR code</p>
+                                <p className="text-sm text-gray-600">Upload QR image or use camera</p>
+                                <label className="mt-3 inline-block px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-lg text-sm font-medium cursor-pointer transition-colors">
+                                    <Upload className="w-4 h-4 inline mr-2" />
+                                    Upload QR Image
+                                    <input 
+                                        type="file" 
+                                        accept="image/*" 
+                                        onChange={handleImageUpload} 
+                                        className="hidden"
+                                    />
+                                </label>
                             </div>
                             <button
                                 onClick={startScanning}

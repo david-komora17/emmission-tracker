@@ -152,7 +152,7 @@ const AdminDashboard = () => {
                     </p>
                 </div>
                 <button 
-                    onClick={fetchComplaints}
+                    onClick={loadComplaints}
                     disabled={loading}
                     className="p-2.5 bg-emerald-500/10 border border-emerald-500/20 hover:bg-emerald-500/20 rounded-xl transition-all duration-300 text-emerald-400 hover:text-emerald-300 group"
                 >
@@ -188,32 +188,32 @@ const AdminDashboard = () => {
                     {complaints.map((item) => (
                         <div 
                             key={item.id} 
-                            className="group p-5 bg-gradient-to-br from-zinc-900/90 via-emerald-950/30 to-zinc-900/90 border border-emerald-500/10 hover:border-emerald-500/30 rounded-2xl transition-all duration-300 hover:shadow-lg hover:shadow-emerald-500/5 hover:-translate-y-0.5"
+                            className="group p-5 bg-slate-950/95 border border-slate-800 hover:border-slate-600 rounded-2xl transition-all duration-300 hover:shadow-lg hover:shadow-slate-900/40"
                         >
                             <div className="space-y-3">
                                 <div className="flex items-start justify-between">
-                                    <span className="px-3 py-1 bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-[9px] font-black tracking-wider rounded-full uppercase">
+                                    <span className="px-3 py-1 bg-slate-800/90 border border-slate-700 text-slate-100 text-[9px] font-black tracking-wider rounded-full uppercase">
                                         {item.subject || 'GENERAL COMPLAINT'}
                                     </span>
-                                    <span className="text-[9px] font-bold text-emerald-400/40 flex items-center gap-1">
+                                    <span className="text-[9px] font-bold text-slate-400 flex items-center gap-1">
                                         <Crown className="w-3 h-3" />
                                         #{item.id}
                                     </span>
                                 </div>
                                 
-                                <p className="text-sm text-white/80 leading-relaxed font-medium line-clamp-3">
+                                <p className="text-sm text-slate-200 leading-relaxed font-medium line-clamp-3">
                                     {item.message}
                                 </p>
                             </div>
                             
-                            <div className="flex items-center justify-between border-t border-emerald-500/10 pt-3 mt-3 text-[10px] text-emerald-400/50 font-semibold">
+                            <div className="flex items-center justify-between border-t border-slate-800/80 pt-3 mt-3 text-[10px] text-slate-400 font-semibold">
                                 <div className="flex items-center space-x-2">
-                                    <div className="w-6 h-6 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
-                                        <User className="w-3 h-3 text-emerald-400" />
+                                    <div className="w-6 h-6 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center">
+                                        <User className="w-3 h-3 text-slate-300" />
                                     </div>
-                                    <span className="text-emerald-300/70">{item.username || 'Anonymous'}</span>
+                                    <span className="text-slate-300">{item.username || 'Anonymous'}</span>
                                 </div>
-                                <div className="flex items-center space-x-2">
+                                <div className="flex items-center space-x-2 text-slate-400">
                                     <Calendar className="w-3 h-3" />
                                     <span>{new Date(item.created_at).toLocaleDateString('en-US', { 
                                         month: 'short', 

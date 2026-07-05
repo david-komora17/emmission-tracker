@@ -223,8 +223,23 @@ class ComplaintFunnelView(APIView):
             return [IsSystemAdmin()]
         return [IsAuthenticated()]
 
-    # GET: List all complaints (Admin only)
-    def get(self, request):
+    # GET: List all complaints or retrieve a specific complaint by id (Admin only)
+    def get(self, request, complaint_id=None):
+        if complaint_id is not None:
+            try:
+                complaint = SystemComplaint.objects.get(id=complaint_id)
+            except SystemComplaint.DoesNotExist:
+                return Response({"error": "Complaint not found"}, status=status.HTTP_404_NOT_FOUND)
+
+            if not (request.user.is_staff or complaint.user == request.user):
+                return Response({"error": "Permission denied."}, status=status.HTTP_403_FORBIDDEN)
+
+            serializer = SystemComplaintSerializer(complaint)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+
+        if not request.user.is_staff:
+            return Response({"error": "Permission denied. Admin access required for full complaint listing."}, status=status.HTTP_403_FORBIDDEN)
+
         complaints = SystemComplaint.objects.all()
         serializer = SystemComplaintSerializer(complaints, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
@@ -887,12 +902,19 @@ class VoiceLogView(APIView):
             raw_co2e = payload.get("co2e_kg")
             co2e_kg = float(raw_co2e) if raw_co2e is not None else 0.0
 
+            activity_type = payload.get("activity_type") or "Generic Logged Activity"
+            category = payload.get("category") or "diet"
+            unit = payload.get("unit") or "units"
+
+            if not activity_type:
+                activity_type = "Generic Logged Activity"
+
             log = ActivityLog.objects.create(
                 user=request.user,
-                category=payload.get("category", "diet"),
-                activity_type=payload.get("activity_type", "Generic Logged Item"),
+                category=category,
+                activity_type=activity_type,
                 input_value=input_value,
-                unit=payload.get("unit", "units"),
+                unit=unit,
                 co2e_kg=co2e_kg
             )
 

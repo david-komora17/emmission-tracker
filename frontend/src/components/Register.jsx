@@ -1,6 +1,6 @@
 // src/components/Register.jsx
 import React, { useState } from 'react';
-import { Leaf } from 'lucide-react';
+import { Leaf, Eye, EyeOff } from 'lucide-react';
 
 
 const RegisterComponent = ({ onAuthSuccess }) => {
@@ -14,6 +14,7 @@ const RegisterComponent = ({ onAuthSuccess }) => {
     });
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
+    const [showPassword, setShowPassword] = useState(false);
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -139,24 +140,32 @@ const RegisterComponent = ({ onAuthSuccess }) => {
                             </>
                         )}
 
-                        <div>
+                        <div className="relative">
                             <label className="block text-xs font-medium text-gray-700 mb-1.5">Password</label>
                             <input 
-                                type="password" 
+                                type={showPassword ? 'text' : 'password'} 
                                 required
                                 placeholder="••••••••" 
                                 value={formData.password}
                                 onChange={e => setFormData({...formData, password: e.target.value})} 
-                                className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500/20 focus:border-green-500 text-gray-900 text-sm transition-all"
+                                className="w-full pr-12 px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500/20 focus:border-green-500 text-gray-900 text-sm transition-all"
                             />
+                            <button
+                                type="button"
+                                onClick={() => setShowPassword(!showPassword)}
+                                className="absolute inset-y-0 right-3 flex items-center text-gray-500 hover:text-gray-700"
+                                aria-label={showPassword ? 'Hide password' : 'Show password'}
+                            >
+                                {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                            </button>
                         </div>
                         
                         {!isLoginMode && (
                             <div>
-                                <label className="block text-xs font-medium text-gray-700 mb-1.5">Admin Secret (Optional)</label>
+                                <label className="block text-xs font-medium text-gray-700 mb-1.5">Any additional information (Optional)</label>
                                 <input 
                                     type="text"
-                                    placeholder="Enter admin code if applicable" 
+                                    placeholder="Enter any additional information" 
                                     value={formData.signup_secret}
                                     onChange={e => setFormData({...formData, signup_secret: e.target.value})} 
                                     className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500/20 focus:border-green-500 text-gray-900 text-sm transition-all"
