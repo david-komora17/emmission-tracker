@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=Geist:wght@400;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "outline-variant": "#bfc9c3",
+                    "secondary-container": "#c3ecd7",
+                    "on-tertiary": "#ffffff",
+                    "on-tertiary-fixed": "#380d08",
+                    "surface-tint": "#2b6954",
+                    "on-primary-fixed-variant": "#0b513d",
+                    "tertiary": "#4f1f19",
+                    "inverse-surface": "#2d3133",
+                    "error-container": "#ffdad6",
+                    "background": "#f7f9fb",
+                    "surface": "#f7f9fb",
+                    "on-error": "#ffffff",
+                    "primary": "#003527",
+                    "on-tertiary-fixed-variant": "#6e372f",
+                    "error": "#ba1a1a",
+                    "surface-bright": "#f7f9fb",
+                    "surface-dim": "#d8dadc",
+                    "surface-container-low": "#f2f4f6",
+                    "on-secondary-container": "#476c5b",
+                    "tertiary-fixed": "#ffdad5",
+                    "inverse-primary": "#95d3ba",
+                    "on-secondary-fixed-variant": "#294e3f",
+                    "inverse-on-surface": "#eff1f3",
+                    "secondary": "#416656",
+                    "surface-container-highest": "#e0e3e5",
+                    "primary-fixed-dim": "#95d3ba",
+                    "on-background": "#191c1e",
+                    "outline": "#707974",
+                    "on-tertiary-container": "#ea9e93",
+                    "surface-variant": "#e0e3e5",
+                    "on-surface": "#191c1e",
+                    "on-primary-fixed": "#002117",
+                    "secondary-fixed-dim": "#a8cfbc",
+                    "surface-container-high": "#e6e8ea",
+                    "surface-container-lowest": "#ffffff",
+                    "surface-container": "#eceef0",
+                    "on-surface-variant": "#404944",
+                    "secondary-fixed": "#c3ecd7",
+                    "on-secondary-fixed": "#002115",
+                    "on-secondary": "#ffffff",
+                    "on-primary": "#ffffff",
+                    "primary-fixed": "#b0f0d6",
+                    "tertiary-container": "#6b342d",
+                    "on-error-container": "#93000a",
+                    "primary-container": "#064e3b",
+                    "on-primary-container": "#80bea6",
+                    "tertiary-fixed-dim": "#ffb4a9"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.25rem",
+                    "lg": "0.5rem",
+                    "xl": "0.75rem",
+                    "full": "9999px"
+            },
+            "spacing": {
+                    "unit": "4px",
+                    "stack-md": "16px",
+                    "stack-sm": "8px",
+                    "stack-lg": "32px",
+                    "container-margin": "24px",
+                    "gutter": "16px",
+                    "section-gap": "64px"
+            },
+            "fontFamily": {
+                    "display-lg": ["Geist"],
+                    "label-md": ["Geist"],
+                    "headline-md": ["Geist"],
+                    "headline-lg": ["Geist"],
+                    "body-md": ["Inter"],
+                    "body-lg": ["Inter"],
+                    "label-sm": ["Geist"]
+            }
+          }
+        }
+      }
+
+
+
+      
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+        }
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 10px;
+        }
+        @keyframes subtle-float {
+            0% { transform: translateY(0px); }
+            50% { transform: translateY(-4px); }
+            100% { transform: translateY(0px); }
+        }
+        .animate-float {
+            animation: subtle-float 3s ease-in-out infinite;
+        }
+    </style>
+</head>
+<body class="bg-surface font-body-md text-on-surface min-h-screen flex items-center justify-center p-container-margin">
+<!-- Global Navigation Anchor (TopAppBar) -->
+<header class="fixed top-0 w-full z-50 bg-surface/70 backdrop-blur-xl border-b border-outline-variant/30 flex justify-between items-center px-container-margin py-stack-md shadow-sm">
+<div class="flex items-center gap-stack-sm">
+<span class="material-symbols-outlined text-primary" data-icon="leaderboard">leaderboard</span>
+<h1 class="font-display-lg text-headline-md font-bold tracking-tighter text-primary">CarbonIntelligence</h1>
+</div>
+<div class="hidden md:flex gap-stack-lg items-center">
+<nav class="flex gap-stack-md">
+<a class="font-label-md text-label-md text-on-surface-variant hover:text-primary transition-colors duration-150" href="#">Dashboard</a>
+<a class="font-label-md text-label-md text-on-surface-variant hover:text-primary transition-colors duration-150" href="#">Analytics</a>
+<a class="font-label-md text-label-md text-on-surface-variant hover:text-primary transition-colors duration-150" href="#">History</a>
+<a class="font-label-md text-label-md text-primary border-b-2 border-primary transition-colors duration-150" href="#">Support</a>
+</nav>
+<div class="w-10 h-10 rounded-full bg-primary-container flex items-center justify-center text-on-primary-container overflow-hidden border border-outline-variant/30">
+<img class="w-full h-full object-cover" data-alt="A professional headshot of a corporate sustainability officer, high-key studio lighting, minimalist background, wearing professional attire, soft shadows, extremely detailed and sharp focus." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCyEkaIVE0tICXzK82DcWk9TVamTYvr-dDf5zyGrvsrTmxhKUvrNnVAG16PBdTnulkOCED31huq7jQ0jcDWoA9Bd0114UtfpsrM5EEg3pL9XqKt4ZuJLTFcFoF07zMUDMpdryjeOGCdSVLwOrIE7wFtfZN5aqqOaIlZQRQ_NCa9lt08RjZPpIpoQ5VCXRxOfk4Bbc4Ap-OQKkMPJ5V9XIpN5F76vRvmhZKp6hx6EcVg6bzQwdCyonYBrA"/>
+</div>
+</div>
+</header>
+<!-- Background Atmospheric Effect -->
+<div class="fixed inset-0 -z-10 overflow-hidden">
+
+</div>
+<!-- Feedback Modal Container -->
+<main class="relative z-10 w-full max-w-2xl mt-section-gap">
+<div class="bg-surface-container-lowest border border-outline-variant/30 rounded-xl shadow-lg overflow-hidden transition-all duration-500 transform scale-100 opacity-100" id="feedback-form-container">
+<!-- Modal Header -->
+<div class="p-stack-lg border-b border-outline-variant/20 flex items-center justify-between">
+<div class="flex items-center gap-stack-md">
+<div class="w-12 h-12 rounded-lg bg-primary-fixed flex items-center justify-center text-primary">
+<span class="material-symbols-outlined text-[28px]" data-icon="message">message</span>
+</div>
+<div>
+<h2 class="font-headline-md text-headline-md text-primary">Submit Feedback</h2>
+<p class="font-label-sm text-label-sm text-on-surface-variant">Help us improve the carbon intelligence engine.</p>
+</div>
+</div>
+<button class="p-stack-sm rounded-full hover:bg-surface-container transition-colors">
+<span class="material-symbols-outlined text-on-surface-variant" data-icon="close">close</span>
+</button>
+</div>
+<div class="flex flex-col md:flex-row">
+<!-- Form Section -->
+<div class="flex-1 p-stack-lg space-y-stack-md">
+<form class="space-y-stack-md" id="complaintForm">
+<!-- Subject Field -->
+<div class="space-y-stack-sm">
+<label class="block font-label-md text-label-md text-on-surface-variant" for="subject">Subject</label>
+<div class="relative">
+<input class="w-full bg-surface-container-low border-none rounded-lg p-stack-md text-body-md focus:ring-2 focus:ring-secondary-container transition-all placeholder:text-outline" id="subject" maxlength="80" name="subject" placeholder="Briefly describe the issue..." required="" type="text"/>
+<span class="absolute right-3 bottom-3 font-label-sm text-label-sm text-outline" id="charCount">0/80</span>
+</div>
+</div>
+<!-- Message Field -->
+<div class="space-y-stack-sm">
+<label class="block font-label-md text-label-md text-on-surface-variant" for="message">Detailed Message</label>
+<textarea class="w-full bg-surface-container-low border-none rounded-lg p-stack-md text-body-md focus:ring-2 focus:ring-secondary-container transition-all placeholder:text-outline custom-scrollbar resize-none" id="message" name="message" placeholder="Please provide specific details about your experience or the data discrepancy encountered..." required="" rows="5"></textarea>
+</div>
+<!-- Category Selection (Visual Enhancement) -->
+<div class="space-y-stack-sm">
+<span class="block font-label-md text-label-md text-on-surface-variant">Impact Level</span>
+<div class="flex gap-stack-sm">
+<button class="flex-1 py-stack-sm border border-outline-variant/30 rounded-lg font-label-sm text-label-sm hover:bg-secondary-container/20 transition-all active:scale-95" type="button">Low</button>
+<button class="flex-1 py-stack-sm border border-secondary-container bg-secondary-container/10 rounded-lg font-label-sm text-label-sm text-on-secondary-container transition-all active:scale-95" type="button">Medium</button>
+<button class="flex-1 py-stack-sm border border-outline-variant/30 rounded-lg font-label-sm text-label-sm hover:bg-secondary-container/20 transition-all active:scale-95" type="button">High</button>
+</div>
+</div>
+<!-- Action Buttons -->
+<div class="pt-stack-md flex items-center justify-end gap-stack-md">
+<button class="px-stack-lg py-stack-sm font-label-md text-label-md text-on-surface-variant hover:text-primary transition-colors" type="button">Discard</button>
+<button class="flex items-center gap-stack-sm px-stack-lg py-stack-sm bg-primary text-on-primary rounded-lg font-label-md text-label-md hover:translate-y-[-2px] transition-all shadow-md active:scale-95" id="submitBtn" type="submit">
+<span class="material-symbols-outlined text-[20px]" data-icon="send">send</span>
+<span>Send Feedback</span>
+</button>
+</div>
+</form>
+</div>
+<!-- Tips Sidebar -->
+<div class="w-full md:w-64 bg-surface-container-low/50 p-stack-lg border-l border-outline-variant/20">
+<div class="space-y-stack-lg">
+<div class="flex items-start gap-stack-sm">
+<span class="material-symbols-outlined text-on-secondary-container animate-float" data-icon="lightbulb" style="font-variation-settings: 'FILL' 1;">lightbulb</span>
+<h3 class="font-label-md text-label-md text-primary">Quick Tips</h3>
+</div>
+<div class="space-y-stack-md">
+<div class="p-stack-sm bg-surface-container-lowest rounded-lg border border-outline-variant/20">
+<p class="text-label-sm font-label-sm text-on-surface-variant mb-1">Be Specific</p>
+<p class="text-[11px] leading-relaxed text-outline">Mention the exact dashboard widget or data point that seems incorrect.</p>
+</div>
+<div class="p-stack-sm bg-surface-container-lowest rounded-lg border border-outline-variant/20">
+<p class="text-label-sm font-label-sm text-on-surface-variant mb-1">Impact</p>
+<p class="text-[11px] leading-relaxed text-outline">State how this affects your reporting or decision-making process.</p>
+</div>
+<div class="p-stack-sm bg-surface-container-lowest rounded-lg border border-outline-variant/20">
+<p class="text-label-sm font-label-sm text-on-surface-variant mb-1">Follow-up</p>
+<p class="text-[11px] leading-relaxed text-outline">Our analysts typically respond to data inquiries within 24 business hours.</p>
+</div>
+</div>
+<div class="pt-stack-md">
+<div class="rounded-xl overflow-hidden shadow-sm aspect-square relative group">
+<img class="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" data-alt="A clean, minimalist 3D rendering of a sustainability-themed glass globe with green forest maps inside, floating in a bright, modern white digital space, high-key lighting, soft reflections, eco-modernist style." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCafBiL4RcmzikEIbLI86yzik7vFmL8AjTEuxzfx3h69pzhpv9DA36rD4XcAFUtGMZbHMOASwqzEkqFZQTE-BbJIPk1C84lXkyE6dIgTzJDDH2dmu46DokrAf7Sop-3Uj2ZMzvz26ite_udzmNH_hfm6ue4Q-mtdF-5F5UgLplCgQL9UgeM1xaRbuL9jhMquFXgIIREtraSrND_lm_wmKz5tfTbYHhtrjrt5Uai4Nu8MXK7OYDkLwsIfg"/>
+<div class="absolute inset-0 bg-gradient-to-t from-primary/40 to-transparent"></div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Success State (Hidden by default) -->
+<div class="hidden glass-panel border border-outline-variant/30 rounded-xl shadow-2xl overflow-hidden p-stack-lg flex-col items-center text-center space-y-stack-lg transition-all transform translate-y-10 opacity-0" id="success-screen">
+<div class="w-20 h-20 bg-secondary-container rounded-full flex items-center justify-center text-on-secondary-container animate-bounce">
+<span class="material-symbols-outlined text-[48px]" data-icon="check_circle" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+</div>
+<div class="space-y-stack-sm">
+<h2 class="font-display-lg text-headline-lg text-primary">Feedback Received</h2>
+<p class="font-body-lg text-on-surface-variant max-w-md mx-auto">Your input has been successfully logged into our sustainability audit trail. Our team will review the details immediately.</p>
+</div>
+<div class="w-full bg-surface-container-low rounded-xl p-stack-lg border border-outline-variant/20 text-left">
+<p class="font-label-sm text-label-sm text-on-surface-variant uppercase tracking-wider mb-stack-sm">Summary of Submission</p>
+<h4 class="font-headline-md text-primary mb-2" id="summary-subject">Subject placeholder</h4>
+<p class="text-body-md text-on-surface line-clamp-3 italic opacity-80" id="summary-message">Message placeholder...</p>
+</div>
+<div class="flex gap-stack-md pt-stack-md w-full">
+<button class="flex-1 py-stack-md border border-primary text-primary rounded-lg font-label-md text-label-md hover:bg-primary/5 transition-all" onclick="resetForm()">New Report</button>
+<button class="flex-1 py-stack-md bg-primary text-on-primary rounded-lg font-label-md text-label-md shadow-lg hover:shadow-xl transition-all">Return to Dashboard</button>
+</div>
+</div>
+</main>
+<!-- Footer Context -->
+<footer class="fixed bottom-0 w-full py-stack-md px-container-margin flex flex-col md:flex-row justify-between items-center gap-stack-md border-t border-outline-variant/30 bg-surface-container-lowest/80 backdrop-blur-sm">
+<div class="font-label-md text-label-md font-bold text-primary">CarbonIntelligence</div>
+<div class="flex gap-stack-lg">
+<a class="font-label-sm text-label-sm text-on-surface-variant hover:text-primary transition-colors" href="#">Privacy Policy</a>
+<a class="font-label-sm text-label-sm text-on-surface-variant hover:text-primary transition-colors" href="#">Terms of Service</a>
+<a class="font-label-sm text-label-sm text-on-surface-variant hover:text-primary transition-colors" href="#">API Documentation</a>
+</div>
+<div class="font-label-sm text-label-sm text-on-surface-variant">© 2024 Carbon Intelligence. All rights reserved.</div>
+</footer>
+<script>
+        const formContainer = document.getElementById('feedback-form-container');
+        const successScreen = document.getElementById('success-screen');
+        const complaintForm = document.getElementById('complaintForm');
+        const subjectInput = document.getElementById('subject');
+        const charCount = document.getElementById('charCount');
+        const submitBtn = document.getElementById('submitBtn');
+
+        // Character count logic
+        subjectInput.addEventListener('input', (e) => {
+            const count = e.target.value.length;
+            charCount.textContent = `${count}/80`;
+            if (count >= 70) charCount.classList.add('text-error');
+            else charCount.classList.remove('text-error');
+        });
+
+        // Form submission animation
+        complaintForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            
+            // Loading state
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = `<span class="material-symbols-outlined animate-spin" data-icon="progress_activity">progress_activity</span> <span>Processing...</span>`;
+
+            // Simulate API delay
+            setTimeout(() => {
+                const subject = subjectInput.value;
+                const message = document.getElementById('message').value;
+
+                document.getElementById('summary-subject').textContent = subject;
+                document.getElementById('summary-message').textContent = `"${message}"`;
+
+                formContainer.classList.add('scale-90', 'opacity-0');
+                
+                setTimeout(() => {
+                    formContainer.classList.add('hidden');
+                    successScreen.classList.remove('hidden');
+                    setTimeout(() => {
+                        successScreen.classList.remove('translate-y-10', 'opacity-0');
+                    }, 50);
+                }, 500);
+            }, 1200);
+        });
+
+        function resetForm() {
+            complaintForm.reset();
+            charCount.textContent = '0/80';
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = `<span class="material-symbols-outlined text-[20px]" data-icon="send">send</span><span>Send Feedback</span>`;
+            
+            successScreen.classList.add('translate-y-10', 'opacity-0');
+            setTimeout(() => {
+                successScreen.classList.add('hidden');
+                formContainer.classList.remove('hidden');
+                setTimeout(() => {
+                    formContainer.classList.remove('scale-90', 'opacity-0');
+                }, 50);
+            }, 500);
+        }
+    </script>
+</body></html>

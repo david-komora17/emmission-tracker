@@ -71,7 +71,7 @@ const Complaints = ({ onClose }) => {
                         </div>
                         <div>
                             <h3 className="text-lg font-bold text-gray-900">Submit Feedback</h3>
-                            <p className="text-xs text-gray-500">We value your input</p>
+                            <p className="text-xs text-gray-500">We value your input!</p>
                         </div>
                     </div>
                     <button

@@ -1,5 +1,4 @@
 // src/components/MapWindow.jsx
-// src/components/MapWindow.jsx
 import React, { useState, useEffect, useRef } from 'react';
 import maplibregl from 'maplibre-gl';
 import * as turf from '@turf/turf';
@@ -222,7 +221,7 @@ export default function MapWindow({ routeData, onQuotaExceeded }) {
                             <Compass className="w-4 h-4 text-green-600" />
                         </div>
                         <h3 className="text-sm font-bold text-gray-900 tracking-wider uppercase">Route Optimizer</h3>
-                        <span className="ml-auto text-[8px] font-bold text-green-600 bg-green-50 px-2 py-0.5 rounded-full uppercase">AI Engine</span>
+                        <span className="ml-auto text-[8px] font-bold text-green-600 bg-green-50 px-2 py-0.5 rounded-full uppercase">AI Ops</span>
                     </div>
                     
                     <form onSubmit={handleRouteOptimization} className="space-y-3">

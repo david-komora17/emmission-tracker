@@ -60,6 +60,12 @@ function App() {
         }
     }, [error, setError, isAdmin]);
 
+    useEffect(() => {
+        const openPaywallListener = () => setShowPaywall(true);
+        window.addEventListener('openPaywall', openPaywallListener);
+        return () => window.removeEventListener('openPaywall', openPaywallListener);
+    }, []);
+
     const handleLogOut = () => {
         localStorage.clear();
         setIsAuthenticated(false);
@@ -344,6 +350,11 @@ function App() {
                     <QuotaPaywallCard 
                         errorDetails={paywallMetrics} 
                         onClose={() => setShowPaywall(false)} 
+                        onPaymentSuccess={(payload) => {
+                            if (payload?.status === 'completed') {
+                                setPaywallMetrics(null);
+                            }
+                        }}
                     />
                 )}
                 

@@ -67,6 +67,7 @@ export default function CarbonHistory({ onClose, initialData }) {
 
         const checkStatus = async () => {
             try {
+                attempts += 1;
                 const token = localStorage.getItem('token');
                 const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
                 
@@ -88,22 +89,30 @@ export default function CarbonHistory({ onClose, initialData }) {
                             setPollingStatus('idle');
                             fetchHistoryData();
                         }, 1500);
-                    } else if (resData.status === 'failed') {
+                        return;
+                    }
+                    if (resData.status === 'failed') {
                         clearInterval(intervalId);
                         setPollingStatus('failed');
                         setPollingError('Payment failed or cancelled. Please try again.');
+                        return;
                     }
-                } else {
-                    attempts++;
                     if (attempts >= maxAttempts) {
                         clearInterval(intervalId);
                         setPollingStatus('failed');
                         setPollingError('Payment processing timed out. Please verify via M-Pesa statements.');
+                        return;
                     }
+                    return;
+                }
+                if (attempts >= maxAttempts) {
+                    clearInterval(intervalId);
+                    setPollingStatus('failed');
+                    setPollingError('Payment processing timed out. Please verify via M-Pesa statements.');
                 }
             } catch (err) {
                 console.error('Error verifying transaction status:', err);
-                attempts++;
+                attempts += 1;
                 if (attempts >= maxAttempts) {
                     clearInterval(intervalId);
                     setPollingStatus('failed');

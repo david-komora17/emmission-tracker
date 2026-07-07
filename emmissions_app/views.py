@@ -538,12 +538,16 @@ class MpesaCarbonmarkCallbackView(APIView):
             return Response(safaricom_success_ack, status=status.HTTP_200_OK)
 
         # UPDATE PAYMENT LOG BASED ON RESULT
-        if result_code != 0:
+        result_code_normalized = str(result_code).strip()
+        payment_log.metadata = payment_log.metadata or {}
+        payment_log.metadata['result_code'] = result_code_normalized
+        payment_log.metadata['result_desc'] = result_desc
+
+        if result_code_normalized != '0':
             # Payment failed or was cancelled
             payment_log.status = 'failed'
             payment_log.completed_at = timezone.now()
             payment_log.metadata['error'] = result_desc
-            payment_log.metadata['result_code'] = result_code
             payment_log.save()
             
             logger.warning(f"Payment failed for user {payment_log.user.username}: {result_desc}")

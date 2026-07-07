@@ -31,7 +31,14 @@ def get_mpesa_callback_url(request=None):
     except Exception:
         pass
 
-    # Last resort fallback localhost
+    # Last resort fallback localhost. If the current request host is reachable externally,
+    # use it so the callback is aligned with the actual request origin.
+    if request is not None:
+        try:
+            return request.build_absolute_uri('/api/payments/mpesa-callback/')
+        except Exception:
+            pass
+
     return "http://127.0.0.1:8000/api/payments/mpesa-callback/"
 
 
