@@ -4,7 +4,7 @@ An advanced, eco-compliance and sustainable ledger backend platform powered by D
 
 ---
 
-## 🚀 Key System Features
+## Key System Features
 
 * **Intelligent Authentication:** Custom JWT engine running on `rest_framework_simplejwt` with self-healing profile initialization and atomic registration isolates.
 * **LLM Emission Calc Engine:** Route optimizing engine that returns strictly structured milestone parsing parameters and exact carbon reduction estimates.
@@ -14,7 +14,7 @@ An advanced, eco-compliance and sustainable ledger backend platform powered by D
 
 ---
 
-## 🛠 Tech Stack Architecture
+##  Tech Stack Architecture
 
 * **Framework:** Django & Django REST Framework (DRF)
 * **Authentication:** JSON Web Tokens (SimpleJWT)
@@ -110,7 +110,7 @@ An advanced, eco-compliance and sustainable ledger backend platform powered by D
       }
     }
     ```
-    * *Advisory Evaluation Tiers:* `GREEN` (Within parameters), `YELLOW` (Target exceeded, bridgeable with credit settlement), `RED` (Massive budget overshoot).
+    * *Advisory Evaluation Tiers:* `GREEN` (Within parameters), `YELLOW` (Target exceeded, bridgeable with purchaseable credits), `RED` (Massive budget overshoot).
 
 ---
 
@@ -155,7 +155,7 @@ An advanced, eco-compliance and sustainable ledger backend platform powered by D
 
 ---
 
-## 📋 Required System Environment Configuration
+##  Required System Environment Configuration
 
 Create a local `.env` configuration template in your workspace root directory containing the following asset indices:
 
