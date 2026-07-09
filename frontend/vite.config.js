@@ -19,7 +19,7 @@ export default ({ mode }) => {
       },
     },
     build: {
-      outDir: '../staticfiles',
+      outDir: 'dist',
       emptyOutDir: true,
       assetsDir: 'assets',
     },
