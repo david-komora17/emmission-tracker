@@ -1,6 +1,6 @@
-# Climatiqa Core API Engine
+# Climatiqa Carbon intelligence
 
-An advanced, eco-compliance and sustainable ledger backend platform powered by Django REST Framework (DRF) and Llama 3.1 LLMs via Groq. This system offers automated carbon footprint calculations, structural transport route profiling, smart multi-modal product scanning, voice-driven intent extraction, and seamless M-Pesa integration matched with Carbonmark environmental credit settlement.
+An advanced, eco-compliance and sustainable ledger backend platform powered by Django REST Framework (DRF) and Llama 3.1 LLMs via Groq. This system offers automated carbon footprint calculations, structural transport route optimizations, smart multi-modal product scanning, voice-driven product inputs and seamless M-Pesa integration matched with Carbonmark environmental credit retirement.
 
 ---
 
@@ -90,7 +90,7 @@ An advanced, eco-compliance and sustainable ledger backend platform powered by D
 
 ### 3. Smart Product Scanner Ingestion
 
-#### `POST /api/products/scan/`
+#### `POST /api/scanner/ingest/`
 * **Access:** `IsAuthenticated`
 * **Parsers:** `MultiPartParser`, `FormParser`, `JSONParser`
 * **Payload Configurations:** Accepts a standard form-data file key containing an invoice/compliance PDF under `file`, **OR** fallback string keys `qr_payload` / `product_name`.
@@ -143,11 +143,7 @@ An advanced, eco-compliance and sustainable ledger backend platform powered by D
 
 ---
 
-### 6. Aggregates & System Dashboards
-
-#### `GET /api/dashboard/`
-* **Access:** `IsAuthenticated`
-* **Behavior:** Compiles all historical transaction activities to output real-time emission tallies, positive environmental offsets, and recommended adjustments down to four decimal places.
+### 6. Aggregates & Admin Dashboards
 
 #### `/api/complaints/`
 * **GET:** Restricted to `IsSystemAdmin` (`is_staff`). Returns complete global system feedback reports.
@@ -155,7 +151,7 @@ An advanced, eco-compliance and sustainable ledger backend platform powered by D
 
 ---
 
-##  Required System Environment Configuration
+##  Required Environment Configuration
 
 Create a local `.env` configuration template in your workspace root directory containing the following asset indices:
 
