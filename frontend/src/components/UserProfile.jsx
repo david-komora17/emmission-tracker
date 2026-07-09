@@ -204,7 +204,7 @@ export default function UserProfile({ onClose }) {
                                     <div className="flex items-center gap-3 p-2.5 bg-gray-50 rounded-xl border border-gray-200">
                                         <Zap className="w-4 h-4 text-gray-400 flex-shrink-0" />
                                         <div className="flex-1 min-w-0">
-                                            <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">Phone Asset</p>
+                                            <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">Phone Number</p>
                                             <p className="text-sm font-medium text-gray-700 truncate">{data.profile?.phone_number || 'Not Linked'}</p>
                                         </div>
                                     </div>
@@ -212,9 +212,9 @@ export default function UserProfile({ onClose }) {
                                     <div className="flex items-center gap-3 p-2.5 bg-gray-50 rounded-xl border border-gray-200">
                                         <Leaf className="w-4 h-4 text-gray-400 flex-shrink-0" />
                                         <div className="flex-1 min-w-0">
-                                            <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">Allocated AI Balance</p>
+                                            <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">Total AI Optimizations</p>
                                             <p className="text-sm font-medium text-gray-700">
-                                                {data.profile?.ai_query_count || 0} / 5 Evaluation Queries Used
+                                                {data.profile?.ai_query_count || 0} / 5 Queries Made
                                             </p>
                                         </div>
                                     </div>

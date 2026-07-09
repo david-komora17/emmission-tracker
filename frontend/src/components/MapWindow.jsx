@@ -18,6 +18,7 @@ export default function MapWindow({ routeData, onQuotaExceeded }) {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
     const [analytics, setAnalytics] = useState(null);
+    const [showResults, setShowResults] = useState(false);
 
     // Initialize Map Canvas Elements
     useEffect(() => {
@@ -55,6 +56,8 @@ export default function MapWindow({ routeData, onQuotaExceeded }) {
         if (e) e.preventDefault();
         setLoading(true);
         setError(null);
+        setAnalytics(null);
+        setShowResults(false);
 
         try {
             // Step 1: Client side Geocoding & OSRM Baseline Route Compilation
@@ -136,6 +139,7 @@ export default function MapWindow({ routeData, onQuotaExceeded }) {
             
             // Set local data engine states
             setAnalytics(aiCalculations);
+            setShowResults(true);
             renderRouteOnCanvas(routeGeoJSON, originCoords, destCoords);
 
             // Step 3: Trigger Beautiful Green Success Toast Panel
@@ -173,6 +177,12 @@ export default function MapWindow({ routeData, onQuotaExceeded }) {
         } finally {
             setLoading(false);
         }
+    };
+
+    const handleResetResults = () => {
+        setShowResults(false);
+        setAnalytics(null);
+        setError(null);
     };
 
     const renderRouteOnCanvas = (geometry, start, end) => {
@@ -214,77 +224,96 @@ export default function MapWindow({ routeData, onQuotaExceeded }) {
     return (
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-0 h-[600px] border border-gray-200 rounded-3xl overflow-hidden shadow-sm bg-white">
             {/* Left Control Dashboard */}
-            <div className="lg:col-span-2 bg-white p-6 overflow-y-auto flex flex-col justify-between">
-                <div className="space-y-4">
-                    <div className="flex items-center gap-2 pb-3 border-b border-gray-100">
-                        <div className="p-1.5 bg-green-50 rounded-lg">
-                            <Compass className="w-4 h-4 text-green-600" />
-                        </div>
-                        <h3 className="text-sm font-bold text-gray-900 tracking-wider uppercase">Route Optimizer</h3>
-                        <span className="ml-auto text-[8px] font-bold text-green-600 bg-green-50 px-2 py-0.5 rounded-full uppercase">AI Ops</span>
+            <div className="lg:col-span-2 bg-white p-6 overflow-y-auto flex flex-col h-full">
+                <div className="flex items-center gap-2 pb-3 border-b border-gray-100">
+                    <div className="p-1.5 bg-green-50 rounded-lg">
+                        <Compass className="w-4 h-4 text-green-600" />
                     </div>
-                    
-                    <form onSubmit={handleRouteOptimization} className="space-y-3">
-                        <div className="space-y-1">
-                            <label className="text-[11px] font-semibold text-gray-500 flex items-center gap-1.5"><MapPin className="w-3 h-3" /> Departure</label>
-                            <input type="text" value={origin} onChange={(e) => setOrigin(e.target.value)} required className="w-full text-sm px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:border-green-500" />
-                        </div>
-
-                        <div className="space-y-1">
-                            <label className="text-[11px] font-semibold text-gray-500 flex items-center gap-1.5"><Target className="w-3 h-3" /> Destination</label>
-                            <input type="text" value={destination} onChange={(e) => setDestination(e.target.value)} required className="w-full text-sm px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:border-green-500" />
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-2">
-                            <div className="space-y-1">
-                                <label className="text-[11px] font-semibold text-gray-500 flex items-center gap-1.5"><Car className="w-3 h-3" /> Class</label>
-                                <input type="text" value={vehicleType} onChange={(e) => setVehicleType(e.target.value)} required className="w-full text-sm px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:border-green-500" />
-                            </div>
-                            <div className="space-y-1">
-                                <label className="text-[11px] font-semibold text-gray-500 flex items-center gap-1.5"><Zap className="w-3 h-3" /> Vehicle Make</label>
-                                <input type="text" value={vehicleMake} onChange={(e) => setVehicleMake(e.target.value)} required className="w-full text-sm px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:border-green-500" />
-                            </div>
-                        </div>
-
-                        <button type="submit" disabled={loading} className="w-full mt-2 py-2.5 bg-green-600 hover:bg-green-700 disabled:bg-gray-200 disabled:text-gray-400 text-white font-medium text-sm rounded-xl flex items-center justify-center gap-2 transition-all shadow-sm">
-                            {loading ? <><Loader2 className="w-4 h-4 animate-spin" /> <span>Computing...</span></> : <><Route className="w-4 h-4" /> <span>Optimize route</span></>}
-                        </button>
-                    </form>
-
-                    {error && (
-                        <div className="p-3 bg-red-50/50 border border-red-100 rounded-xl text-xs text-red-600 flex items-start gap-2">
-                            <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                            <span>{error}</span>
-                        </div>
-                    )}
+                    <h3 className="text-sm font-bold text-gray-900 tracking-wider uppercase">Route Optimizer</h3>
+                    <span className="ml-auto text-[8px] font-bold text-green-600 bg-green-50 px-2 py-0.5 rounded-full uppercase">AI Ops</span>
                 </div>
 
-                {/* Metric Summary Visual blocks */}
-                {analytics && (
-                    <div className="space-y-3 pt-4 border-t border-gray-100 mt-4">
-                        <div className="grid grid-cols-2 gap-2">
-                            <div className="p-3 bg-gray-50 rounded-xl">
-                                <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Distance</p>
-                                <p className="text-lg font-black text-gray-800 mt-0.5">{analytics.estimated_distance_km} <span className="text-xs font-normal text-gray-400">km</span></p>
-                            </div>
-                            <div className="p-3 bg-green-50/50 border border-green-100/30 rounded-xl">
-                                <p className="text-[10px] font-semibold text-green-600 uppercase tracking-wider">CO₂ Saved</p>
-                                <p className="text-lg font-black text-green-700 mt-0.5">{analytics.total_carbon_saved_kg} <span className="text-xs font-normal text-green-500">kg</span></p>
-                            </div>
-                        </div>
-                        <div className="space-y-1.5 max-h-[140px] overflow-y-auto pr-1">
-                            {analytics.milestones?.map((item, idx) => (
-                                <div key={idx} className="p-2.5 bg-gray-50/50 border border-gray-100 rounded-xl flex items-center justify-between text-xs">
-                                    <div className="min-w-0 flex-1 pr-2">
-                                        <p className="font-bold text-[10px] text-green-600 uppercase tracking-wide">{item.mode} ({item.distance_km} km)</p>
-                                        <p className="text-gray-600 truncate mt-0.5">{item.instruction}</p>
-                                    </div>
-                                    <span className="font-bold text-red-600 shrink-0 bg-white border border-gray-100 px-2 py-1 rounded-lg">+{item.emissions_kg}kg</span>
+                <div className="flex-1 flex flex-col min-h-0 mt-4">
+                    {showResults && analytics ? (
+                        <div className="flex-1 min-h-[320px] rounded-2xl border border-green-100 bg-gradient-to-br from-green-50/80 to-white p-4 flex flex-col justify-between shadow-sm">
+                            <div className="space-y-4">
+                                <div className="rounded-xl bg-white/80 border border-gray-100 p-3">
+                                    <p className="text-[10px] font-semibold text-green-600 uppercase tracking-wider">Optimization complete</p>
+                                    <p className="mt-1 text-sm font-semibold text-gray-800">{analytics.narrative}</p>
                                 </div>
-                            ))}
+
+                                <div className="grid grid-cols-2 gap-2">
+                                    <div className="p-3 bg-gray-50 rounded-xl">
+                                        <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Distance</p>
+                                        <p className="text-lg font-black text-gray-800 mt-0.5">{analytics.estimated_distance_km} <span className="text-xs font-normal text-gray-400">km</span></p>
+                                    </div>
+                                    <div className="p-3 bg-green-50/50 border border-green-100/30 rounded-xl">
+                                        <p className="text-[10px] font-semibold text-green-600 uppercase tracking-wider">CO₂ Saved</p>
+                                        <p className="text-lg font-black text-green-700 mt-0.5">{analytics.total_carbon_saved_kg} <span className="text-xs font-normal text-green-500">kg</span></p>
+                                    </div>
+                                </div>
+
+                                <div className="space-y-1.5 max-h-[220px] overflow-y-auto pr-1">
+                                    {analytics.milestones?.map((item, idx) => (
+                                        <div key={idx} className="p-2.5 bg-white/80 border border-gray-100 rounded-xl flex items-center justify-between text-xs">
+                                            <div className="min-w-0 flex-1 pr-2">
+                                                <p className="font-bold text-[10px] text-green-600 uppercase tracking-wide">{item.mode} ({item.distance_km} km)</p>
+                                                <p className="text-gray-600 truncate mt-0.5">{item.instruction}</p>
+                                            </div>
+                                            <span className="font-bold text-red-600 shrink-0 bg-gray-50 border border-gray-100 px-2 py-1 rounded-lg">+{item.emissions_kg}kg</span>
+                                        </div>
+                                    ))}
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={handleResetResults}
+                                    className="w-full mt-2 py-2.5 bg-green-600 hover:bg-green-700 text-white font-medium text-sm rounded-xl transition-all shadow-sm"
+                                >
+                                    Done!
+                                </button>
+                            </div>
+
                         </div>
-                    </div>
-                )}
+                    ) : (
+                        <form onSubmit={handleRouteOptimization} className="flex-1 flex flex-col justify-between min-h-[320px]">
+                            <div className="space-y-3">
+                                <div className="space-y-1">
+                                    <label className="text-[11px] font-semibold text-gray-500 flex items-center gap-1.5"><MapPin className="w-3 h-3" /> Departure</label>
+                                    <input type="text" value={origin} onChange={(e) => setOrigin(e.target.value)} required className="w-full text-sm px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:border-green-500" />
+                                </div>
+
+                                <div className="space-y-1">
+                                    <label className="text-[11px] font-semibold text-gray-500 flex items-center gap-1.5"><Target className="w-3 h-3" /> Destination</label>
+                                    <input type="text" value={destination} onChange={(e) => setDestination(e.target.value)} required className="w-full text-sm px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:border-green-500" />
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-2">
+                                    <div className="space-y-1">
+                                        <label className="text-[11px] font-semibold text-gray-500 flex items-center gap-1.5"><Car className="w-3 h-3" /> Class</label>
+                                        <input type="text" value={vehicleType} onChange={(e) => setVehicleType(e.target.value)} required className="w-full text-sm px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:border-green-500" />
+                                    </div>
+                                    <div className="space-y-1">
+                                        <label className="text-[11px] font-semibold text-gray-500 flex items-center gap-1.5"><Zap className="w-3 h-3" /> Vehicle Make</label>
+                                        <input type="text" value={vehicleMake} onChange={(e) => setVehicleMake(e.target.value)} required className="w-full text-sm px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:border-green-500" />
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="space-y-3 mt-4">
+                                <button type="submit" disabled={loading} className="w-full py-2.5 bg-green-600 hover:bg-green-700 disabled:bg-gray-200 disabled:text-gray-400 text-white font-medium text-sm rounded-xl flex items-center justify-center gap-2 transition-all shadow-sm">
+                                    {loading ? <><Loader2 className="w-4 h-4 animate-spin" /> <span>Processing...</span></> : <><Route className="w-4 h-4" /> <span>Optimize route</span></>}
+                                </button>
+
+                                {error && (
+                                    <div className="p-3 bg-red-50/50 border border-red-100 rounded-xl text-xs text-red-600 flex items-start gap-2">
+                                        <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                                        <span>{error}</span>
+                                    </div>
+                                )}
+                            </div>
+                        </form>
+                    )}
+                </div>
             </div>
 
             {/* Right Map Block */}

@@ -16,7 +16,6 @@ const Footer = () => {
                     <div className="flex items-center gap-4 text-xs">
                         <span className="text-gray-400">Carbon Neutral</span>
                         <span className="text-gray-300">|</span>
-                        <span className="text-gray-400">v2.0</span>
                     </div>
                 </div>
             </div>

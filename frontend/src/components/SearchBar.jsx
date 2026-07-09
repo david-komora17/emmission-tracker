@@ -114,7 +114,7 @@ const SearchBar = () => {
                 </button>
             </form>
 
-            {/* ✅ Toast Notification - Using Portal to render directly under document.body */}
+            {/*  Toast Notification - Using Portal to render directly under document.body */}
             {toast && toast.visible && createPortal(
                 <>
                     {/* Injecting CSS Keyframes dynamically for the progress bar shrink animation */}
