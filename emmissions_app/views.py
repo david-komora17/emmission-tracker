@@ -8,7 +8,6 @@ import base64
 import json
 from groq import Groq
 from pypdf import PdfReader
-from pyzbar.pyzbar import decode
 from PIL import Image
 
 
@@ -608,35 +607,11 @@ class ProductScannerIngestionView(APIView):
                 return Response({"error": f"PDF extraction failed: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
         # NEW: Handle QR image upload
         elif 'qr_image' in request.FILES:
-            try:
-                image_file = request.FILES['qr_image']
-                image = Image.open(io.BytesIO(image_file.read()))
-                decoded_objects = decode(image)
-                
-                if decoded_objects:
-                    raw_text_content = decoded_objects[0].data.decode('utf-8')
-                else:
-                    return Response(
-                        {"error": "No QR code found in image. Please ensure the image contains a clear QR code."},
-                        status=status.HTTP_400_BAD_REQUEST
-                    )
-            except Exception as e:
-                return Response(
-                    {"error": f"QR image processing failed: {str(e)}"},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-        else:
-            raw_text_content = request.data.get("qr_payload") or request.data.get("product_name")
-
-        # Step 1: Text extraction from files or payload
-        if 'file' in request.FILES:
-            pdf_file = request.FILES['file']
-            try:
-                reader = PdfReader(pdf_file)
-                for page in reader.pages:
-                    raw_text_content += page.extract_text() or ""
-            except Exception as e:
-                return Response({"error": f"PDF extraction failed: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
+            # QR scanning temporarily disabled due to system dependency
+            return Response(
+                {"error": "QR scanning is temporarily unavailable. Please use the file upload option."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE
+            )
         else:
             raw_text_content = request.data.get("qr_payload") or request.data.get("product_name")
 
