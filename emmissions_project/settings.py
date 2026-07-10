@@ -149,6 +149,8 @@ STORAGES = {
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
+    "https://emmission-tracker-fc4j-kappa.vercel.app", 
+
 ]
 
 # Allow credentials if you handle session cookies or Authorization headers safely
