@@ -192,7 +192,7 @@ const ProductScanner = ({ onClose, onScanComplete }) => {
 
     const handleAddToHistory = async (productData) => {
         setToast(null);
-        console.log('✅ Synchronized history logging for:', productData.product_name);
+        console.log(' Synchronized history logging for:', productData.product_name);
     };
 
     const handleCancelToast = () => {

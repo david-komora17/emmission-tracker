@@ -235,8 +235,9 @@ export default function MapWindow({ routeData, onQuotaExceeded }) {
 
                 <div className="flex-1 flex flex-col min-h-0 mt-4">
                     {showResults && analytics ? (
-                        <div className="flex-1 min-h-[320px] rounded-2xl border border-green-100 bg-gradient-to-br from-green-50/80 to-white p-4 flex flex-col justify-between shadow-sm">
-                            <div className="space-y-4">
+                        <div className="flex-1 min-h-[320px] h-full rounded-2xl border border-green-100 bg-gradient-to-br from-green-50/80 to-white p-4 flex flex-col justify-between shadow-sm overflow-hidden">
+                            {/* Upper Content Section */}
+                            <div className="space-y-3 flex-1 overflow-y-auto pr-1">
                                 <div className="rounded-xl bg-white/80 border border-gray-100 p-3">
                                     <p className="text-[10px] font-semibold text-green-600 uppercase tracking-wider">Optimization complete</p>
                                     <p className="mt-1 text-sm font-semibold text-gray-800">{analytics.narrative}</p>
@@ -253,7 +254,8 @@ export default function MapWindow({ routeData, onQuotaExceeded }) {
                                     </div>
                                 </div>
 
-                                <div className="space-y-1.5 max-h-[220px] overflow-y-auto pr-1">
+                                {/* Milestone scrollable list */}
+                                <div className="space-y-1.5 max-h-[140px] overflow-y-auto pr-0.5">
                                     {analytics.milestones?.map((item, idx) => (
                                         <div key={idx} className="p-2.5 bg-white/80 border border-gray-100 rounded-xl flex items-center justify-between text-xs">
                                             <div className="min-w-0 flex-1 pr-2">
@@ -264,15 +266,18 @@ export default function MapWindow({ routeData, onQuotaExceeded }) {
                                         </div>
                                     ))}
                                 </div>
+                            </div>
+
+                            {/* Fixed Action Section (Always at the bottom) */}
+                            <div className="pt-3 mt-2 border-t border-green-100/40 shrink-0">
                                 <button
                                     type="button"
                                     onClick={handleResetResults}
-                                    className="w-full mt-2 py-2.5 bg-green-600 hover:bg-green-700 text-white font-medium text-sm rounded-xl transition-all shadow-sm"
+                                    className="w-full py-2.5 bg-green-600 hover:bg-green-700 text-white font-medium text-sm rounded-xl transition-all shadow-sm"
                                 >
                                     Done!
                                 </button>
                             </div>
-
                         </div>
                     ) : (
                         <form onSubmit={handleRouteOptimization} className="flex-1 flex flex-col justify-between min-h-[320px]">

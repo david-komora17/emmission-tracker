@@ -125,7 +125,8 @@ const SearchBar = ({ updateDashboardState }) => {
         } catch (error) {
             console.error("Failed to commit item to activity ledger:", error);
         }
-    };
+    };      
+    
     const handleCancel = () => {
         setToast(null);
     };
