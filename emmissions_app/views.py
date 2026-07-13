@@ -28,6 +28,7 @@ from rest_framework.exceptions import Throttled
 from .models import UserProfile, ActivityLog, SystemComplaint, PaymentLog
 from .permissions import IsOwner, IsHighestPaidTier, PremiumTierPermission
 from .utils import generate_mpesa_credentials, get_mpesa_callback_url
+from .service import retire_carbonmark_credits  
 
 logger = logging.getLogger(__name__)
 
@@ -521,7 +522,6 @@ class MpesaCarbonmarkCallbackView(APIView):
         checkout_request_id = stk_callback.get("CheckoutRequestID")
         result_desc = stk_callback.get("ResultDesc", "Unknown")
         
-        # Safaricom expects a clean acknowledgment
         safaricom_success_ack = {
             "ResponseCode": "0",
             "ResponseDescription": "success"
@@ -529,30 +529,25 @@ class MpesaCarbonmarkCallbackView(APIView):
 
         logger.info(f"M-Pesa callback received for checkout ID: {checkout_request_id}, result: {result_code}")
 
-        # FIND THE PAYMENT LOG BY CHECKOUT ID
         try:
             payment_log = PaymentLog.objects.get(mpesa_checkout_id=checkout_request_id)
         except PaymentLog.DoesNotExist:
             logger.warning(f"PaymentLog not found for checkout ID: {checkout_request_id}")
             return Response(safaricom_success_ack, status=status.HTTP_200_OK)
 
-        # UPDATE PAYMENT LOG BASED ON RESULT
         result_code_normalized = str(result_code).strip()
         payment_log.metadata = payment_log.metadata or {}
         payment_log.metadata['result_code'] = result_code_normalized
         payment_log.metadata['result_desc'] = result_desc
 
         if result_code_normalized != '0':
-            # Payment failed or was cancelled
             payment_log.status = 'failed'
             payment_log.completed_at = timezone.now()
             payment_log.metadata['error'] = result_desc
             payment_log.save()
-            
-            logger.warning(f"Payment failed for user {payment_log.user.username}: {result_desc}")
             return Response(safaricom_success_ack, status=status.HTTP_200_OK)
 
-        # PAYMENT SUCCESSFUL - Update PaymentLog
+        # PAYMENT SUCCESSFUL
         payment_log.status = 'completed'
         payment_log.completed_at = timezone.now()
         payment_log.save()
@@ -563,28 +558,55 @@ class MpesaCarbonmarkCallbackView(APIView):
             user = payment_log.user
             profile = user.userprofile
 
-            # ACTIVATE PREMIUM SUBSCRIPTION
-            profile.activate_premium_one_month()
-            
-            # Clear the checkout ID from profile
-            profile.mpesa_checkout_request_id = None
-            profile.save()
-            
-            # Log the successful payment in ActivityLog
-            ActivityLog.objects.create(
-                user=user,
-                category='payment',
-                activity_type='Premium Subscription Activated',
-                input_value=float(payment_log.amount),
-                unit='KES',
-                co2e_kg=0.0
-            )
-            
-            logger.info(f"Premium activated for user {user.username} until {profile.premium_expiry_date}")
+            # --- ROUTE LOGIC DEPENDING ON PAYMENT TYPE ---
+            if payment_log.payment_type == 'subscription':
+                # ACTIVATE PREMIUM SUBSCRIPTION
+                profile.activate_premium_one_month()
+                profile.mpesa_checkout_request_id = None
+                profile.save()
+                
+                ActivityLog.objects.create(
+                    user=user,
+                    category='payment',
+                    activity_type='Premium Subscription Activated',
+                    input_value=float(payment_log.amount),
+                    unit='KES',
+                    co2e_kg=0.0
+                )
+                logger.info(f"Premium activated for user {user.username}")
+
+            elif payment_log.payment_type == 'carbon_credits':
+                # CALL CARBONMARK RETIREMENT ENGINE
+                retirement_result = retire_carbonmark_credits(
+                    amount_kes=payment_log.amount,
+                    beneficiary_name=user.get_full_name() or user.username,
+                    retirement_reason=f"M-Pesa checkout balance retirement. Ref: {checkout_request_id}"
+                )
+                
+                # Update ledger metric inside your unified UserProfile model
+                kg_retired = retirement_result["retired_kg"]
+                profile.cumulative_offset_kg += kg_retired
+                profile.mpesa_checkout_request_id = None
+                profile.save()
+
+                # Save metadata details to payment log
+                payment_log.metadata['carbonmark_tx_uuid'] = retirement_result["transaction_id"]
+                payment_log.metadata['certificate_url'] = retirement_result["certificate_url"]
+                payment_log.save()
+
+                # Log to user activity ledger
+                ActivityLog.objects.create(
+                    user=user,
+                    category='offset',
+                    activity_type='Carbon Credits Retired via Carbonmark',
+                    input_value=kg_retired,
+                    unit='kg',
+                    co2e_kg=kg_retired
+                )
+                logger.info(f"Successfully retired {kg_retired} kg CO2e via Carbonmark for user {user.username}")
 
         except Exception as e:
             logger.error(f"Error processing successful payment for user {payment_log.user.username}: {str(e)}")
-            # Still return 200 to Safaricom even if our processing fails
 
         return Response(safaricom_success_ack, status=status.HTTP_200_OK)
 
@@ -909,6 +931,42 @@ class VoiceLogView(APIView):
         
 class UserProfileDashboardView(APIView):
     permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        data = request.data
+
+        # 1. Extract and validate metrics sent from handleAddToHistory()
+        category = data.get('category')
+        activity_type = data.get('activity_type')
+        input_value = data.get('input_value')
+        unit = data.get('unit')
+        co2e_kg = data.get('co2e_kg')
+
+        if not all([category, activity_type, input_value is not None, unit, co2e_kg is not None]):
+            return Response(
+                {"error": "Missing required fields to log carbon history."}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # 2. Persist the record directly into the ActivityLog table
+        try:
+            ActivityLog.objects.create(
+                user=user,
+                category=category,
+                activity_type=activity_type,
+                input_value=float(input_value),
+                unit=unit,
+                co2e_kg=float(co2e_kg)
+            )
+        except (ValueError, TypeError):
+            return Response(
+                {"error": "Invalid numeric data formats for metrics payload."}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # 3. Leverage the pre-existing logic to return the completely refreshed state
+        return self.get(request)
 
     def get(self, request):
         user = request.user
