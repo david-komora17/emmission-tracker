@@ -196,6 +196,9 @@ export default function MapWindow({ routeData, onQuotaExceeded }) {
         const destMarker = new maplibregl.Marker({ color: '#ef4444' }).setLngLat(end).addTo(map);
         routeMarkerRef.current = [originMarker, destMarker];
 
+        const drawLine = () => {
+        if (!map.getStyle()) return; // Map isn't ready yet
+
         if (map.getSource('optimized-route')) {
             map.getSource('optimized-route').setData(geometry);
         } else {
@@ -219,6 +222,14 @@ export default function MapWindow({ routeData, onQuotaExceeded }) {
 
         const bbox = turf.bbox(geometry);
         map.fitBounds(bbox, { padding: 50, maxZoom: 14 });
+    };
+
+        // If style hasn't fully finished loading, queue the line drawing
+        if (!map.isStyleLoaded()) {
+            map.once('style.load', drawLine);
+        } else {
+            drawLine();
+        }
     };
 
     return (

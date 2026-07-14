@@ -1,4 +1,4 @@
-// src/App.jsx - Updated with Three-Dot Menu
+// src/App.jsx - Updated with Carbon Offsetting Integration
 import React, { useState, useEffect } from 'react';
 import { 
   Leaf, 
@@ -12,7 +12,8 @@ import {
   MessageSquare,
   Settings,
   HelpCircle,
-  FileText
+  FileText,
+  DollarSign
 } from 'lucide-react';
 import { Toaster } from 'react-hot-toast';
 import MapWindow from './components/MapWindow';
@@ -24,7 +25,8 @@ import QuotaPaywallCard from './components/Paywall';
 import UserProfile from './components/UserProfile';
 import Footer from './components/Footer';
 import AdminDashboard from './components/AdminDash.jsx';
-import Complaints from './components/Complaints'; // Import Complaints
+import Complaints from './components/Complaints';
+import CarbonOffsetModal from './components/CarbonOffsetModal'; // New Import
 import { useTransitOptimizer } from './hooks/useTransitOptimizer';
 
 function App() {
@@ -32,12 +34,13 @@ function App() {
     const [userFirstName, setUserFirstName] = useState('');
     const [showProfileCard, setShowProfileCard] = useState(false);
     const [showPaywall, setShowPaywall] = useState(false);
+    const [showOffsetModal, setShowOffsetModal] = useState(false); // Carbon Offset state
     const [paywallMetrics, setPaywallMetrics] = useState(null);
     const [isAdmin, setIsAdmin] = useState(false);
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
     const [showScanner, setShowScanner] = useState(false);
-    const [showComplaints, setShowComplaints] = useState(false); // New state
-    const [showDropdownMenu, setShowDropdownMenu] = useState(false); // Three-dot menu state
+    const [showComplaints, setShowComplaints] = useState(false);
+    const [showDropdownMenu, setShowDropdownMenu] = useState(false);
 
     const { optimizeRoute, processVoiceLog, routeData, loading, error, setError } = useTransitOptimizer();
 
@@ -110,7 +113,7 @@ function App() {
 
             {/* Main Content */}
             <div className="relative z-10 min-h-screen flex flex-col">
-                {/* Header - Frosted Glass */}
+                {/* Header */}
                 <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-md border-b border-white/20">
                     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                         <div className="flex items-center justify-between h-16 gap-4">
@@ -137,12 +140,10 @@ function App() {
 
                             {/* Desktop Right Section */}
                             <div className="hidden md:flex items-center gap-4">
-                                {/* Search Bar - Integrated */}
                                 <div className="w-72">
                                     <SearchBar />
                                 </div>
 
-                                {/* Scan Button */}
                                 <button
                                     onClick={() => setShowScanner(true)}
                                     className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-xl text-sm font-medium transition-all duration-200 shadow-sm hover:shadow-md"
@@ -178,10 +179,8 @@ function App() {
                                             <MoreVertical className="w-5 h-5" />
                                         </button>
 
-                                        {/* Dropdown Menu */}
                                         {showDropdownMenu && (
                                             <div className="absolute right-0 mt-2 w-56 bg-white rounded-xl shadow-lg border border-gray-200 py-1 z-50 animate-fade-in">
-                                                {/* Feedback & Complaints */}
                                                 <button
                                                     onClick={() => {
                                                         setShowComplaints(true);
@@ -193,10 +192,8 @@ function App() {
                                                     <span>Feedback & Complaints</span>
                                                 </button>
 
-                                                {/* Divider */}
                                                 <div className="border-t border-gray-100 my-1"></div>
 
-                                                {/* User Profile */}
                                                 <button
                                                     onClick={() => {
                                                         setShowProfileCard(true);
@@ -208,22 +205,19 @@ function App() {
                                                     <span>My Profile</span>
                                                 </button>
 
-                                                {/* Help/Support */}
                                                 <button
                                                     onClick={() => {
-                                                        // Add help/support functionality
+                                                        setShowOffsetModal(true); // Open carbon offsetting modal
                                                         setShowDropdownMenu(false);
                                                     }}
                                                     className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
                                                 >
-                                                    <HelpCircle className="w-4 h-4" />
-                                                    <span>Help & Support</span>
+                                                    <DollarSign className="w-4 h-4" />
+                                                    <span>Offsetting emissions</span>
                                                 </button>
 
-                                                {/* Terms/Privacy */}
                                                 <button
                                                     onClick={() => {
-                                                        // Add terms/privacy functionality
                                                         setShowDropdownMenu(false);
                                                     }}
                                                     className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
@@ -232,10 +226,8 @@ function App() {
                                                     <span>Terms & Privacy</span>
                                                 </button>
 
-                                                {/* Divider */}
                                                 <div className="border-t border-gray-100 my-1"></div>
 
-                                                {/* Sign Out */}
                                                 <button
                                                     onClick={handleLogOut}
                                                     className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors"
@@ -275,7 +267,6 @@ function App() {
                                     Scan Product
                                 </button>
                                 
-                                {/* Mobile Menu Items */}
                                 <div className="space-y-2 pt-2 border-t border-gray-200">
                                     <button
                                         onClick={() => {
@@ -296,6 +287,16 @@ function App() {
                                     >
                                         <User className="w-4 h-4" />
                                         My Profile
+                                    </button>
+                                    <button
+                                        onClick={() => {
+                                            setShowOffsetModal(true);
+                                            setMobileMenuOpen(false);
+                                        }}
+                                        className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 rounded-lg transition-colors"
+                                    >
+                                        <Leaf className="w-4 h-4" />
+                                        Offsetting emissions
                                     </button>
                                 </div>
 
@@ -319,7 +320,7 @@ function App() {
                     </div>
                 </header>
 
-                {/* Main Content */}
+                {/* Main Content Area */}
                 <Toaster position="top-right" reverseOrder={false} />
                 <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 w-full">
                     {isAdmin ? (
@@ -342,7 +343,6 @@ function App() {
                     )}
                 </main>
 
-                {/* Footer */}
                 <Footer />
 
                 {/* Modals */}
@@ -371,9 +371,13 @@ function App() {
                     />
                 )}
 
-                {/* Complaints Modal */}
                 {showComplaints && (
                     <Complaints onClose={() => setShowComplaints(false)} />
+                )}
+
+                {/* Carbon Offset Modal */}
+                {showOffsetModal && (
+                    <CarbonOffsetModal onClose={() => setShowOffsetModal(false)} />
                 )}
             </div>
         </div>
