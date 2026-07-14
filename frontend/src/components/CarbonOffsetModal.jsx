@@ -122,12 +122,10 @@ function CarbonOffsetModal({ onClose }) {
                 {/* Modal Content */}
                 <div className="p-6">
                     <div className="flex items-center gap-3 mb-4">
-                        <div className="p-2.5 bg-green-100 rounded-xl">
-                            <Leaf className="w-6 h-6 text-green-700" />
-                        </div>
+                        <Trees className="w-6 h-6" />
                         <div>
                             <h2 className="text-xl font-bold text-gray-900">Offset Carbon Footprint</h2>
-                            <p className="text-xs text-gray-500">Fund ecological preservation instantly</p>
+                            <p className="text-xs text-gray-500">Retire your carbon credits instantly</p>
                         </div>
                     </div>
 
@@ -152,7 +150,7 @@ function CarbonOffsetModal({ onClose }) {
                     ) : (
                         <form onSubmit={handleInitiateOffset} className="space-y-4">
                             <div>
-                                <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1">
+                                <label className="block text-xs font-semibold text-gray-600 tracking-wider mb-1">
                                     Offset Value (KES)
                                 </label>
                                 <input
@@ -176,8 +174,8 @@ function CarbonOffsetModal({ onClose }) {
                             </div>
 
                             <div>
-                                <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1">
-                                    Safaricom Phone Number
+                                <label className="block text-xs font-semibold text-gray-600 tracking-wider mb-1">
+                                    Mobile Number
                                 </label>
                                 <div className="relative">
                                     <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400">
