@@ -6,6 +6,7 @@ import { Navigation, Car, AlertCircle, Compass, Loader2, Leaf, Route, TrendingDo
 import { toast } from 'react-hot-toast'; // or use your project's custom toast trigger wrapper
 import 'maplibre-gl/dist/maplibre-gl.css';
 
+maplibregl.setWorkerUrl('/assets/maplibre-gl-csp-worker.js');
 export default function MapWindow({ routeData, onQuotaExceeded }) {
     const mapContainerRef = useRef(null);
     const mapRef = useRef(null);
