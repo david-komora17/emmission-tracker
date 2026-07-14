@@ -1,6 +1,6 @@
 // src/components/CarbonOffsetModal.jsx
 import React, { useState, useEffect } from 'react';
-import { X, Leaf, Smartphone, CheckCircle, Loader } from 'lucide-react';
+import { X, Trees, Smartphone, CheckCircle, Loader } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 
 function CarbonOffsetModal({ onClose }) {

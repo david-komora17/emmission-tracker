@@ -1,7 +1,7 @@
 // src/App.jsx - Updated with Carbon Offsetting Integration
 import React, { useState, useEffect } from 'react';
 import { 
-  Leaf, 
+  Trees, 
   LogOut, 
   User, 
   Shield, 
@@ -26,6 +26,7 @@ import UserProfile from './components/UserProfile';
 import Footer from './components/Footer';
 import AdminDashboard from './components/AdminDash.jsx';
 import Complaints from './components/Complaints';
+import TermsModal from './components/TermsModal'; // New Import
 import CarbonOffsetModal from './components/CarbonOffsetModal'; // New Import
 import { useTransitOptimizer } from './hooks/useTransitOptimizer';
 
@@ -41,6 +42,7 @@ function App() {
     const [showScanner, setShowScanner] = useState(false);
     const [showComplaints, setShowComplaints] = useState(false);
     const [showDropdownMenu, setShowDropdownMenu] = useState(false);
+    const [showTermsModal, setShowTermsModal] = useState(false);
 
     const { optimizeRoute, processVoiceLog, routeData, loading, error, setError } = useTransitOptimizer();
 
@@ -119,9 +121,8 @@ function App() {
                         <div className="flex items-center justify-between h-16 gap-4">
                             {/* Brand */}
                             <div className="flex items-center gap-3">
-                                <div className="p-2 bg-green-700/10 rounded-xl">
-                                    <Leaf className="w-6 h-6 text-green-700" />
-                                </div>
+
+                                <Trees className="w-8 h-8 text-green-600"/>
                                 <div>
                                     <h1 className="text-lg font-bold text-gray-900 tracking-tight">
                                         Climatiqa
@@ -218,6 +219,7 @@ function App() {
 
                                                 <button
                                                     onClick={() => {
+                                                        setShowTermsModal(true); // Open the terms modal
                                                         setShowDropdownMenu(false);
                                                     }}
                                                     className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
@@ -295,7 +297,7 @@ function App() {
                                         }}
                                         className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 rounded-lg transition-colors"
                                     >
-                                        <Leaf className="w-4 h-4" />
+                                        <DollarSign className="w-4 h-4" />
                                         Offsetting emissions
                                     </button>
                                 </div>
@@ -378,6 +380,11 @@ function App() {
                 {/* Carbon Offset Modal */}
                 {showOffsetModal && (
                     <CarbonOffsetModal onClose={() => setShowOffsetModal(false)} />
+                )}
+
+                {/* Terms Modal */}
+                {showTermsModal && (
+                    <TermsModal onClose={() => setShowTermsModal(false)} />
                 )}
             </div>
         </div>

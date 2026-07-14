@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import maplibregl from 'maplibre-gl';
 import * as turf from '@turf/turf';
-import { Navigation, Car, AlertCircle, Compass, Loader2, Leaf, Route, TrendingDown, MapPin, Zap, Target, Search } from 'lucide-react';
+import { Navigation, Car, AlertCircle, Compass, Loader2, Leaf, Route, TrendingDown, MapPin, Zap, Target, Search, Lightbulb } from 'lucide-react';
 import { toast } from 'react-hot-toast'; // or use your project's custom toast trigger wrapper
 import 'maplibre-gl/dist/maplibre-gl.css';
 
@@ -234,9 +234,9 @@ export default function MapWindow({ routeData, onQuotaExceeded }) {
 
     return (
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-0 h-[600px] border border-gray-200 rounded-3xl overflow-hidden shadow-sm bg-white">
-            {/* Left Control Dashboard */}
+                        {/* Left Control Dashboard */}
             <div className="lg:col-span-2 bg-white p-6 overflow-y-auto flex flex-col h-full">
-                <div className="flex items-center gap-2 pb-3 border-b border-gray-100">
+                <div className="flex items-center gap-2 pb-3 border-b border-gray-100 shrink-0">
                     <div className="p-1.5 bg-green-50 rounded-lg">
                         <Compass className="w-4 h-4 text-green-600" />
                     </div>
@@ -291,7 +291,9 @@ export default function MapWindow({ routeData, onQuotaExceeded }) {
                             </div>
                         </div>
                     ) : (
+                        /* Form container stretching to balance structural layout */
                         <form onSubmit={handleRouteOptimization} className="flex-1 flex flex-col justify-between min-h-[320px]">
+                            {/* Form Inputs */}
                             <div className="space-y-3">
                                 <div className="space-y-1">
                                     <label className="text-[11px] font-semibold text-gray-500 flex items-center gap-1.5"><MapPin className="w-3 h-3" /> Departure</label>
@@ -315,13 +317,27 @@ export default function MapWindow({ routeData, onQuotaExceeded }) {
                                 </div>
                             </div>
 
-                            <div className="space-y-3 mt-4">
+                            {/* Quick Tips Box - Perfectly occupies the empty center space */}
+                            <div className="p-3 bg-green-50/60 border border-green-100 rounded-xl my-4">
+                                <p className="text-xs text-green-800 font-bold flex items-center gap-1.5">
+                                    <Lightbulb className="w-3.5 h-3.5 text-green-600 shrink-0" />
+                                    <span>Route Optimization breakdown:</span>
+                                </p>
+                                <ul className="text-[11px] text-green-700 mt-1.5 space-y-1 list-disc list-inside leading-relaxed pl-1">
+                                    <li>AI narrative calculation based on ecological routing</li>
+                                    <li>Dynamic carbon offsets ($CO_2$ saved in kg) and physical metrics</li>
+                                    <li>Step-by-step multi-modal milestones for transit</li>
+                                </ul>
+                            </div>
+
+                            {/* Optimize Button sits pinned to the bottom */}
+                            <div className="space-y-3 shrink-0">
                                 <button type="submit" disabled={loading} className="w-full py-2.5 bg-green-600 hover:bg-green-700 disabled:bg-gray-200 disabled:text-gray-400 text-white font-medium text-sm rounded-xl flex items-center justify-center gap-2 transition-all shadow-sm">
                                     {loading ? <><Loader2 className="w-4 h-4 animate-spin" /> <span>Processing...</span></> : <><Route className="w-4 h-4" /> <span>Optimize route</span></>}
                                 </button>
 
                                 {error && (
-                                    <div className="p-3 bg-red-50/50 border border-red-100 rounded-xl text-xs text-red-600 flex items-start gap-2">
+                                    <div className="p-3 bg-red-50/50 border border-red-100 rounded-xl text-xs text-red-600 flex items-start gap-2 animate-fade-in">
                                         <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
                                         <span>{error}</span>
                                     </div>
@@ -331,7 +347,6 @@ export default function MapWindow({ routeData, onQuotaExceeded }) {
                     )}
                 </div>
             </div>
-
             {/* Right Map Block */}
             <div className="lg:col-span-3 w-full h-full bg-gray-50 relative">
                 <div ref={mapContainerRef} className="absolute inset-0 w-full h-full" />
