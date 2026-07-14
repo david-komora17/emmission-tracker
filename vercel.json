@@ -4,6 +4,17 @@
   "installCommand": "cd frontend && npm install --legacy-peer-deps",
   "framework": "vite",
   "rewrites": [
-    { "source": "/(.*)", "destination": "/frontend/dist/index.html" }
+    { "source": "/(.*)", "destination": "/index.html" }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "Content-Security-Policy",
+          "value": "worker-src 'self' blob:; child-src 'self' blob:; connect-src 'self' https://basemaps.cartocdn.com https://router.project-osrm.org https://nominatim.openstreetmap.org;"
+        }
+      ]
+    }
   ]
 }
