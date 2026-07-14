@@ -3,10 +3,12 @@ import React, { useState, useEffect, useRef } from 'react';
 import maplibregl from 'maplibre-gl';
 import * as turf from '@turf/turf';
 import { Navigation, Car, AlertCircle, Compass, Loader2, Leaf, Route, TrendingDown, MapPin, Zap, Target, Search, Lightbulb } from 'lucide-react';
-import { toast } from 'react-hot-toast'; // or use your project's custom toast trigger wrapper
+import { toast } from 'react-hot-toast'; 
 import 'maplibre-gl/dist/maplibre-gl.css';
 
-maplibregl.setWorkerUrl('/assets/maplibre-gl-csp-worker.js');
+// Configure the CSP-safe worker globally from the public root folder
+maplibregl.setWorkerUrl('/maplibre-gl-csp-worker.js');
+
 export default function MapWindow({ routeData, onQuotaExceeded }) {
     const mapContainerRef = useRef(null);
     const mapRef = useRef(null);
@@ -190,52 +192,67 @@ export default function MapWindow({ routeData, onQuotaExceeded }) {
         const map = mapRef.current;
         if (!map) return;
 
+        // Clean up any existing markers
         routeMarkerRef.current.forEach(marker => marker.remove());
         routeMarkerRef.current = [];
 
-        const originMarker = new maplibregl.Marker({ color: '#10b981' }).setLngLat(start).addTo(map);
-        const destMarker = new maplibregl.Marker({ color: '#ef4444' }).setLngLat(end).addTo(map);
-        routeMarkerRef.current = [originMarker, destMarker];
-
+        // Helper function that actually draws the line
         const drawLine = () => {
-        if (!map.getStyle()) return; // Map isn't ready yet
+            // If the source already exists, just update its data
+            if (map.getSource('optimized-route')) {
+                map.getSource('optimized-route').setData(geometry);
+                return;
+            }
 
-        if (map.getSource('optimized-route')) {
-            map.getSource('optimized-route').setData(geometry);
-        } else {
+            // Otherwise, add the GeoJSON source
             map.addSource('optimized-route', {
                 type: 'geojson',
                 data: geometry
             });
 
+            // Add the visual styling layer
             map.addLayer({
-                id: 'route-line',
+                id: 'optimized-route-line',
                 type: 'line',
                 source: 'optimized-route',
-                layout: { 'line-join': 'round', 'line-cap': 'round' },
+                layout: {
+                    'line-join': 'round',
+                    'line-cap': 'round'
+                },
                 paint: {
-                    'line-color': '#10b981',
-                    'line-width': 4,
-                    'line-opacity': 0.8,
+                    'line-color': '#10b981', // Emerald green
+                    'line-width': 5,
+                    'line-opacity': 0.85
                 }
             });
-        }
 
-        const bbox = turf.bbox(geometry);
-        map.fitBounds(bbox, { padding: 50, maxZoom: 14 });
-    };
+            // Fit the map camera to the bounds of the route dynamically using turf
+            const bbox = turf.bbox(geometry);
+            map.fitBounds(bbox, { padding: 50, maxZoom: 14 });
+        };
 
-        // If style hasn't fully finished loading, queue the line drawing
+        // CRITICAL FIX: If the map style hasn't fully finished loading, queue the line drawing
         if (!map.isStyleLoaded()) {
             map.once('style.load', drawLine);
         } else {
             drawLine();
         }
+
+        // Always drop the markers since they are HTML elements and don't rely on WebGL style layers
+        const startMarker = new maplibregl.Marker({ color: '#10b981' })
+            .setLngLat(start)
+            .addTo(map);
+
+        const endMarker = new maplibregl.Marker({ color: '#ef4444' })
+            .setLngLat(end)
+            .addTo(map);
+
+        routeMarkerRef.current.push(startMarker, endMarker);
     };
 
     return (
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-0 h-[600px] border border-gray-200 rounded-3xl overflow-hidden shadow-sm bg-white">
-                        {/* Left Control Dashboard */}
+            {/* Left Control Dashboard */}
             <div className="lg:col-span-2 bg-white p-6 overflow-y-auto flex flex-col h-full">
                 <div className="flex items-center gap-2 pb-3 border-b border-gray-100 shrink-0">
                     <div className="p-1.5 bg-green-50 rounded-lg">
@@ -326,7 +343,7 @@ export default function MapWindow({ routeData, onQuotaExceeded }) {
                                 </p>
                                 <ul className="text-[11px] text-green-700 mt-1.5 space-y-1 list-disc list-inside leading-relaxed pl-1">
                                     <li>AI narrative calculation based on ecological routing</li>
-                                    <li>Dynamic carbon offsets ($CO_2$ saved in kg) and physical metrics</li>
+                                    <li>Dynamic carbon offsets (CO2 saved in kg) and physical metrics</li>
                                     <li>Step-by-step multi-modal milestones for transit</li>
                                 </ul>
                             </div>
