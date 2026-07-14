@@ -23,7 +23,13 @@ export default ({ mode }) => {
       emptyOutDir: true,
       assetsDir: 'assets',
       chunkSizeWarningLimit: 1000,
+      minify: 'esbuild', 
+      target: 'es2022',
       // Remove rollupOptions.manualChunks entirely
-    },
+    },  
+    worker: {
+      format: 'es', // Compiles the worker as an ES module
+      plugins: () => []
+    }
   })
 }
