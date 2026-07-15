@@ -1,6 +1,6 @@
 // src/components/CarbonOffsetModal.jsx
-import React, { useState, useEffect } from 'react';
-import { X, Trees, Smartphone, CheckCircle, Loader } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { X, Trees, Smartphone, CheckCircle, Loader2, AlertCircle } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 
 function CarbonOffsetModal({ onClose }) {
@@ -10,16 +10,28 @@ function CarbonOffsetModal({ onClose }) {
     const [loading, setLoading] = useState(false);
     const [checkoutId, setCheckoutId] = useState(null);
     const [paymentStatus, setPaymentStatus] = useState('idle'); // idle | processing | completed | failed
+    const [localError, setLocalError] = useState(null);
 
-    // Calculate dynamic carbon credit equivalent
+    // Use a ref to track the polling interval across renders and unmounts safely
+    const intervalRef = useRef(null);
+
+    // Calculate dynamic carbon credit equivalent (KES 15 = 1kg CO2)
     useEffect(() => {
         const numericAmount = parseFloat(amount) || 0;
-        // Calculation base: 1 kg CO2 e.g. costs KES 15
         setCarbonCredits((numericAmount / 15).toFixed(2));
     }, [amount]);
 
+    // Clear any active polling interval on unmount to prevent memory leaks
+    useEffect(() => {
+        return () => {
+            if (intervalRef.current) clearInterval(intervalRef.current);
+        };
+    }, []);
+
     const handleInitiateOffset = async (e) => {
         e.preventDefault();
+        setLocalError(null);
+
         if (!phone.match(/^(254|\+254|0)?(7|1)\d{8}$/)) {
             toast.error("Please enter a valid Safaricom phone number.");
             return;
@@ -38,7 +50,9 @@ function CarbonOffsetModal({ onClose }) {
 
         try {
             const token = localStorage.getItem('token');
-            const response = await fetch('/api/payments/checkout/', {
+            const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
+            
+            const response = await fetch(`${baseUrl}/api/payments/checkout/`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -47,65 +61,89 @@ function CarbonOffsetModal({ onClose }) {
                 body: JSON.stringify({
                     phone_number: formattedPhone,
                     amount: parseFloat(amount),
-                    purpose: 'carbon_offset'
+                    payment_type: 'carbon_offset' // Matches backend subscription schema
                 })
             });
 
             const data = await response.json();
-            if (!response.ok) {
-                throw new Error(data.detail || 'Failed to initialize checkout');
-            }
 
-            setCheckoutId(data.checkout_id);
-            toast.success('M-Pesa STK push sent successfully!');
-            
-            // Start polling for checkout status verification
-            startPolling(data.checkout_id);
+            if (response.ok) {
+                // Correctly match backend CheckoutRequestID mapping
+                const reqId = data.CheckoutRequestID || data.checkout_id;
+                if (!reqId) {
+                    throw new Error("Invalid backend checkout receipt received.");
+                }
+                
+                setCheckoutId(reqId);
+                localStorage.setItem('mpesa_checkout_id', reqId);
+                toast.success('M-Pesa STK push sent successfully!');
+                
+                // Start polling status
+                startPolling(reqId);
+            } else {
+                throw new Error(data.error || data.detail || 'Failed to initialize checkout');
+            }
         } catch (err) {
             toast.error(err.message || 'Something went wrong');
+            setLocalError(err.message || 'Something went wrong');
             setPaymentStatus('failed');
             setLoading(false);
         }
     };
 
-    const startPolling = (id) => {
-        let attempts = 0;
-        const maxAttempts = 24; // Poll for 2 minutes (every 5 seconds)
-        
-        const interval = setInterval(async () => {
-            attempts++;
-            if (attempts > maxAttempts) {
-                clearInterval(interval);
-                setPaymentStatus('failed');
-                setLoading(false);
-                toast.error('Payment verification timed out. Please check your transaction receipts.');
-                return;
-            }
+    const startPolling = (targetCheckoutId) => {
+        if (intervalRef.current) clearInterval(intervalRef.current);
 
+        let attempts = 0;
+        const maxAttempts = 20; // 60 seconds total polling timeframe
+
+        const checkStatus = async () => {
             try {
+                attempts += 1;
                 const token = localStorage.getItem('token');
-                const response = await fetch(`/api/payments/status/${id}/`, {
-                    headers: {
-                        'Authorization': `Bearer ${token}`
-                    }
+                const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
+
+                const response = await fetch(`${baseUrl}/api/payments/status/${targetCheckoutId}/`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
                 });
                 const data = await response.json();
 
-                if (response.ok && data.status === 'completed') {
-                    clearInterval(interval);
-                    setPaymentStatus('completed');
-                    setLoading(false);
-                    toast.success(`Successfully offset ${carbonCredits}kg of CO2!`);
-                } else if (data.status === 'failed') {
-                    clearInterval(interval);
+                if (response.ok) {
+                    if (data.status === 'completed') {
+                        clearInterval(intervalRef.current);
+                        setPaymentStatus('completed');
+                        setLoading(false);
+                        toast.success(`Successfully offset ${carbonCredits}kg of CO2!`);
+                        return;
+                    }
+
+                    if (data.status === 'failed') {
+                        clearInterval(intervalRef.current);
+                        setPaymentStatus('failed');
+                        setLoading(false);
+                        toast.error('Transaction failed or cancelled.');
+                        return;
+                    }
+                }
+
+                if (attempts >= maxAttempts) {
+                    clearInterval(intervalRef.current);
                     setPaymentStatus('failed');
                     setLoading(false);
-                    toast.error('Transaction failed or was cancelled.');
+                    toast.error('Payment timed out. Please check your handset or try again.');
                 }
-            } catch (err) {
-                console.error('Error polling payment status:', err);
+            } catch (error) {
+                console.error('Error polling payment status:', error);
+                if (attempts >= maxAttempts) {
+                    clearInterval(intervalRef.current);
+                    setPaymentStatus('failed');
+                    setLoading(false);
+                }
             }
-        }, 5000);
+        };
+
+        intervalRef.current = setInterval(checkStatus, 3000);
+        checkStatus();
     };
 
     return (
@@ -114,7 +152,8 @@ function CarbonOffsetModal({ onClose }) {
                 {/* Close Button */}
                 <button 
                     onClick={onClose}
-                    className="absolute top-4 right-4 p-1.5 text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-100 transition-all"
+                    disabled={paymentStatus === 'processing'}
+                    className="absolute top-4 right-4 p-1.5 text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-100 transition-all disabled:opacity-50"
                 >
                     <X className="w-5 h-5" />
                 </button>
@@ -122,7 +161,7 @@ function CarbonOffsetModal({ onClose }) {
                 {/* Modal Content */}
                 <div className="p-6">
                     <div className="flex items-center gap-3 mb-4">
-                        <Trees className="w-6 h-6" />
+                        <Trees className="w-6 h-6 text-green-600 animate-bounce" />
                         <div>
                             <h2 className="text-xl font-bold text-gray-900">Offset Carbon Footprint</h2>
                             <p className="text-xs text-gray-500">Retire your carbon credits instantly</p>
@@ -142,7 +181,7 @@ function CarbonOffsetModal({ onClose }) {
                             </div>
                             <button
                                 onClick={onClose}
-                                className="w-full py-2.5 bg-green-600 text-white font-semibold rounded-xl text-sm transition-all hover:bg-green-700"
+                                className="w-full py-2.5 bg-green-600 text-white font-semibold rounded-xl text-sm transition-all hover:bg-green-700 shadow-sm"
                             >
                                 Back to Map
                             </button>
@@ -193,15 +232,22 @@ function CarbonOffsetModal({ onClose }) {
                                 </div>
                             </div>
 
+                            {localError && (
+                                <div className="p-3 bg-red-50 border border-red-200 rounded-xl flex items-center gap-2 text-red-600 text-xs font-medium">
+                                    <AlertCircle className="w-4 h-4 shrink-0" />
+                                    <span>{localError}</span>
+                                </div>
+                            )}
+
                             <button
                                 type="submit"
                                 disabled={loading}
-                                className="w-full flex items-center justify-center gap-2 py-3 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-xl text-sm transition-all disabled:opacity-50"
+                                className="w-full flex items-center justify-center gap-2 py-3 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-xl text-sm transition-all disabled:opacity-50 shadow-sm"
                             >
                                 {loading ? (
                                     <>
-                                        <Loader className="w-4 h-4 animate-spin" />
-                                        <span>Awaiting STK Authorization...</span>
+                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                        <span>Awaiting STK Push Pin...</span>
                                     </>
                                 ) : (
                                     <span>Initiate M-Pesa Offset</span>
