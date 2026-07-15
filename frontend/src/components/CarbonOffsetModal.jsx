@@ -5,7 +5,7 @@ import { toast } from 'react-hot-toast';
 
 function CarbonOffsetModal({ onClose }) {
     const [phone, setPhone] = useState('');
-    const [amount, setAmount] = useState('150'); // Amount in KES
+    const [amount, setAmount] = useState('150'); // Default Amount in KES
     const [carbonCredits, setCarbonCredits] = useState(10); // Equivalent CO2 offset in kg
     const [loading, setLoading] = useState(false);
     const [checkoutId, setCheckoutId] = useState(null);
@@ -32,12 +32,13 @@ function CarbonOffsetModal({ onClose }) {
         e.preventDefault();
         setLocalError(null);
 
+        // Validation for Safaricom numbers
         if (!phone.match(/^(254|\+254|0)?(7|1)\d{8}$/)) {
             toast.error("Please enter a valid Safaricom phone number.");
             return;
         }
 
-        // Standardize phone format for M-Pesa (254XXXXXXXXX)
+        // Standardize phone format for M-Pesa API (254XXXXXXXXX)
         let formattedPhone = phone.trim().replace('+', '');
         if (formattedPhone.startsWith('0')) {
             formattedPhone = '254' + formattedPhone.slice(1);
@@ -68,7 +69,7 @@ function CarbonOffsetModal({ onClose }) {
             const data = await response.json();
 
             if (response.ok) {
-                // Correctly match backend CheckoutRequestID mapping
+                // Safely read either raw Safaricom CheckoutRequestID or serialized snake_case key
                 const reqId = data.CheckoutRequestID || data.checkout_id;
                 if (!reqId) {
                     throw new Error("Invalid backend checkout receipt received.");
@@ -78,7 +79,7 @@ function CarbonOffsetModal({ onClose }) {
                 localStorage.setItem('mpesa_checkout_id', reqId);
                 toast.success('M-Pesa STK push sent successfully!');
                 
-                // Start polling status
+                // Start polling status immediately using the exact Checkout ID
                 startPolling(reqId);
             } else {
                 throw new Error(data.error || data.detail || 'Failed to initialize checkout');
@@ -95,7 +96,7 @@ function CarbonOffsetModal({ onClose }) {
         if (intervalRef.current) clearInterval(intervalRef.current);
 
         let attempts = 0;
-        const maxAttempts = 20; // 60 seconds total polling timeframe
+        const maxAttempts = 20; // 60 seconds total polling timeframe (3s interval)
 
         const checkStatus = async () => {
             try {
@@ -109,7 +110,7 @@ function CarbonOffsetModal({ onClose }) {
                 const data = await response.json();
 
                 if (response.ok) {
-                    if (data.status === 'completed') {
+                    if (data.status === 'completed' || data.status === 'Success' || data.status === 'success') {
                         clearInterval(intervalRef.current);
                         setPaymentStatus('completed');
                         setLoading(false);
@@ -117,7 +118,7 @@ function CarbonOffsetModal({ onClose }) {
                         return;
                     }
 
-                    if (data.status === 'failed') {
+                    if (data.status === 'failed' || data.status === 'Failed' || data.status === 'cancelled') {
                         clearInterval(intervalRef.current);
                         setPaymentStatus('failed');
                         setLoading(false);
@@ -142,8 +143,9 @@ function CarbonOffsetModal({ onClose }) {
             }
         };
 
+        // Poll every 3 seconds
         intervalRef.current = setInterval(checkStatus, 3000);
-        checkStatus();
+        checkStatus(); // Fire immediately without waiting for first 3s delay
     };
 
     return (
@@ -204,7 +206,7 @@ function CarbonOffsetModal({ onClose }) {
                                 />
                             </div>
 
-                            {/* Impact Estimate */}
+                            {/* Impact Estimate Card */}
                             <div className="bg-green-50/50 border border-green-100 rounded-xl p-3.5 text-center">
                                 <p className="text-xs text-gray-500">Estimated Carbon Offset Impact</p>
                                 <p className="text-2xl font-black text-green-700 mt-1">
