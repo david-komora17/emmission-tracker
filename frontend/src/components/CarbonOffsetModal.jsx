@@ -47,45 +47,44 @@ function CarbonOffsetModal({ onClose }) {
         setPaymentStatus('processing');
 
         try {
-            const token = localStorage.getItem('token');
-            const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
-            
-            const response = await fetch(`${baseUrl}/api/payments/checkout/`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                },
-                body: JSON.stringify({
-                    phone_number: formattedPhone,
-                    amount: parseFloat(amount),
-                    payment_type: 'carbon_offset' // Matches backend setup
-                })
-            });
+    const response = await fetch(`${baseUrl}/api/payments/checkout/`, {
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+    });
 
-            const data = await response.json();
+    // 1. Check if the response is actually JSON before parsing to prevent the 'Unexpected token T' crash
+    const contentType = response.headers.get("content-type");
+    if (!contentType || !contentType.includes("application/json")) {
+        const textError = await response.text();
+        console.error("Non-JSON response received:", textError);
+        throw new Error(`Server Error (${response.status}): The server did not return valid JSON.`);
+    }
 
-            if (response.ok) {
-                // Ensure we read both CheckoutRequestID formats like the working backend
-                const reqId = data.CheckoutRequestID || data.checkout_id;
-                if (!reqId) {
-                    throw new Error("Invalid backend checkout receipt received.");
-                }
-                
-                setCheckoutId(reqId);
-                localStorage.setItem('mpesa_checkout_id', reqId);
-                toast.success('M-Pesa STK push sent successfully!');
-                startPolling(reqId);
-            } else {
-                throw new Error(data.error || data.detail || 'Failed to initialize checkout');
-            }
-        } catch (err) {
-            toast.error(err.message || 'Something went wrong');
-            setLocalError(err.message || 'Something went wrong');
-            setPaymentStatus('failed');
-            setLoading(false);
+    const data = await response.json();
+
+    if (response.ok) {
+        const reqId = data.CheckoutRequestID || data.checkout_id;
+        setCheckoutId(reqId);
+        setPaymentSent(true);
+        localStorage.setItem('mpesa_checkout_id', reqId);
+        
+        if (onPaymentSuccess) {
+            onPaymentSuccess({ status: 'initiated', checkout_id: reqId, amount: data.amount_billed });
         }
-    };
+        startPolling(reqId);
+    } else {
+        setLocalError(data.error || data.detail || "M-Pesa payment initiation failed.");
+    }
+} catch (err) {
+    console.error(err);
+    setLocalError(err.message || "Network error. Please check your connection.");
+} finally {
+    setLoading(false);
+}
 
     const startPolling = (targetCheckoutId) => {
         if (intervalRef.current) clearInterval(intervalRef.current);
