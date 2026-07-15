@@ -12,7 +12,6 @@ function CarbonOffsetModal({ onClose }) {
     const [paymentStatus, setPaymentStatus] = useState('idle'); // idle | processing | completed | failed
     const [localError, setLocalError] = useState(null);
 
-    // Use a ref to track the polling interval across renders and unmounts safely
     const intervalRef = useRef(null);
 
     // Calculate dynamic carbon credit equivalent (KES 15 = 1kg CO2)
@@ -21,7 +20,6 @@ function CarbonOffsetModal({ onClose }) {
         setCarbonCredits((numericAmount / 15).toFixed(2));
     }, [amount]);
 
-    // Clear any active polling interval on unmount to prevent memory leaks
     useEffect(() => {
         return () => {
             if (intervalRef.current) clearInterval(intervalRef.current);
@@ -32,18 +30,17 @@ function CarbonOffsetModal({ onClose }) {
         e.preventDefault();
         setLocalError(null);
 
-        // Validation for Safaricom numbers
-        if (!phone.match(/^(254|\+254|0)?(7|1)\d{8}$/)) {
-            toast.error("Please enter a valid Safaricom phone number.");
-            return;
-        }
-
-        // Standardize phone format for M-Pesa API (254XXXXXXXXX)
+        // Normalize phone to format 254XXXXXXXXX matching Paywall's backend expectations
         let formattedPhone = phone.trim().replace('+', '');
         if (formattedPhone.startsWith('0')) {
             formattedPhone = '254' + formattedPhone.slice(1);
         } else if (formattedPhone.startsWith('7') || formattedPhone.startsWith('1')) {
             formattedPhone = '254' + formattedPhone;
+        }
+
+        if (!formattedPhone.match(/^254[0-9]{9}$/)) {
+            toast.error("Please enter a valid Safaricom phone number.");
+            return;
         }
 
         setLoading(true);
@@ -62,14 +59,14 @@ function CarbonOffsetModal({ onClose }) {
                 body: JSON.stringify({
                     phone_number: formattedPhone,
                     amount: parseFloat(amount),
-                    payment_type: 'carbon_offset' // Matches backend subscription schema
+                    payment_type: 'carbon_offset' // Matches backend setup
                 })
             });
 
             const data = await response.json();
 
             if (response.ok) {
-                // Safely read either raw Safaricom CheckoutRequestID or serialized snake_case key
+                // Ensure we read both CheckoutRequestID formats like the working backend
                 const reqId = data.CheckoutRequestID || data.checkout_id;
                 if (!reqId) {
                     throw new Error("Invalid backend checkout receipt received.");
@@ -78,8 +75,6 @@ function CarbonOffsetModal({ onClose }) {
                 setCheckoutId(reqId);
                 localStorage.setItem('mpesa_checkout_id', reqId);
                 toast.success('M-Pesa STK push sent successfully!');
-                
-                // Start polling status immediately using the exact Checkout ID
                 startPolling(reqId);
             } else {
                 throw new Error(data.error || data.detail || 'Failed to initialize checkout');
@@ -96,7 +91,7 @@ function CarbonOffsetModal({ onClose }) {
         if (intervalRef.current) clearInterval(intervalRef.current);
 
         let attempts = 0;
-        const maxAttempts = 20; // 60 seconds total polling timeframe (3s interval)
+        const maxAttempts = 20;
 
         const checkStatus = async () => {
             try {
@@ -110,6 +105,7 @@ function CarbonOffsetModal({ onClose }) {
                 const data = await response.json();
 
                 if (response.ok) {
+                    // Match the broader success status values from the working Paywall backend
                     if (data.status === 'completed' || data.status === 'Success' || data.status === 'success') {
                         clearInterval(intervalRef.current);
                         setPaymentStatus('completed');
@@ -131,7 +127,7 @@ function CarbonOffsetModal({ onClose }) {
                     clearInterval(intervalRef.current);
                     setPaymentStatus('failed');
                     setLoading(false);
-                    toast.error('Payment timed out. Please check your handset or try again.');
+                    toast.error('Payment timed out.');
                 }
             } catch (error) {
                 console.error('Error polling payment status:', error);
@@ -143,27 +139,24 @@ function CarbonOffsetModal({ onClose }) {
             }
         };
 
-        // Poll every 3 seconds
         intervalRef.current = setInterval(checkStatus, 3000);
-        checkStatus(); // Fire immediately without waiting for first 3s delay
+        checkStatus();
     };
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
             <div className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden transform transition-all">
-                {/* Close Button */}
                 <button 
                     onClick={onClose}
                     disabled={paymentStatus === 'processing'}
-                    className="absolute top-4 right-4 p-1.5 text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-100 transition-all disabled:opacity-50"
+                    className="absolute top-4 right-4 p-1.5 text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-100 transition-all"
                 >
                     <X className="w-5 h-5" />
                 </button>
 
-                {/* Modal Content */}
                 <div className="p-6">
                     <div className="flex items-center gap-3 mb-4">
-                        <Trees className="w-6 h-6 text-green-600 animate-bounce" />
+                        <Trees className="w-6 h-6 text-green-600" />
                         <div>
                             <h2 className="text-xl font-bold text-gray-900">Offset Carbon Footprint</h2>
                             <p className="text-xs text-gray-500">Retire your carbon credits instantly</p>
@@ -206,7 +199,6 @@ function CarbonOffsetModal({ onClose }) {
                                 />
                             </div>
 
-                            {/* Impact Estimate Card */}
                             <div className="bg-green-50/50 border border-green-100 rounded-xl p-3.5 text-center">
                                 <p className="text-xs text-gray-500">Estimated Carbon Offset Impact</p>
                                 <p className="text-2xl font-black text-green-700 mt-1">
